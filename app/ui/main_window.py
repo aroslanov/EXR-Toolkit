@@ -1,0 +1,439 @@
+"""
+Main application window (Qt 6).
+
+Orchestrates the three main panels:
+- Input: Load/inspect sequences
+- Output: Build output channel set
+- Export: Configure export and run
+"""
+
+from pathlib import Path
+
+from PySide6.QtWidgets import (
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTextEdit,
+    QTabWidget,
+    QDialog,
+    QLineEdit,
+    QFileDialog,
+    QListView,
+    QComboBox,
+)
+from PySide6.QtCore import Qt
+
+from ..core import (
+    SequenceSpec,
+    SequencePathPattern,
+    OutputChannel,
+    ChannelSourceRef,
+    ValidationEngine,
+    ValidationSeverity,
+)
+from ..oiio import OiioAdapter
+from ..core.sequence import SequenceDiscovery
+from ..services import ProjectState, ExportManager
+from ..ui.models import (
+    SequenceListModel,
+    ChannelListModel,
+    OutputChannelListModel,
+    AttributeTableModel,
+)
+from ..ui.widgets import AttributeEditor
+
+
+class MainWindow(QMainWindow):
+    """Main application window."""
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("EXR Channel Recombiner")
+        self.setGeometry(100, 100, 1600, 950)
+
+        # State
+        self.state = ProjectState()
+        self.export_manager = ExportManager()
+
+        # Models
+        self.seq_list_model = SequenceListModel()
+        self.ch_list_model = ChannelListModel()
+        self.out_ch_list_model = OutputChannelListModel()
+        self.attr_table_model = AttributeTableModel()
+
+        # Build UI
+        self._build_ui()
+        self._connect_signals()
+
+    def _build_ui(self) -> None:
+        """Build the main UI layout."""
+        central = QWidget()
+        self.setCentralWidget(central)
+
+        main_layout = QHBoxLayout(central)
+
+        # Left panel: Input sequences
+        left_panel = self._create_input_panel()
+        main_layout.addWidget(left_panel, 1)
+
+        # Center panel: Output channels
+        center_panel = self._create_output_panel()
+        main_layout.addWidget(center_panel, 1)
+
+        # Right panel: Export settings + log
+        right_panel = self._create_export_panel()
+        main_layout.addWidget(right_panel, 1)
+
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
+
+    def _create_input_panel(self) -> QWidget:
+        """Input sequence panel."""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+
+        layout.addWidget(QLabel("Input Sequences"))
+
+        self.sequence_list = QListView()
+        self.sequence_list.setModel(self.seq_list_model)
+        self.sequence_list.clicked.connect(self._on_sequence_selected)
+        layout.addWidget(self.sequence_list)
+
+        btn_layout = QHBoxLayout()
+        btn_add = QPushButton("Load Sequence")
+        btn_add.clicked.connect(self._on_load_sequence)
+        btn_remove = QPushButton("Remove")
+        btn_remove.clicked.connect(self._on_remove_sequence)
+        btn_layout.addWidget(btn_add)
+        btn_layout.addWidget(btn_remove)
+        layout.addLayout(btn_layout)
+
+        layout.addWidget(QLabel("Channels in Selected Sequence"))
+        self.channel_list = QListView()
+        self.channel_list.setModel(self.ch_list_model)
+        layout.addWidget(self.channel_list)
+
+        btn_add_to_output = QPushButton("Add Selected to Output")
+        btn_add_to_output.clicked.connect(self._on_add_channel_to_output)
+        layout.addWidget(btn_add_to_output)
+
+        layout.addStretch()
+        return panel
+
+    def _create_output_panel(self) -> QWidget:
+        """Output channel builder panel."""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+
+        layout.addWidget(QLabel("Output Channels"))
+
+        self.output_list = QListView()
+        self.output_list.setModel(self.out_ch_list_model)
+        layout.addWidget(self.output_list)
+
+        btn_layout = QHBoxLayout()
+        btn_remove = QPushButton("Remove")
+        btn_remove.clicked.connect(self._on_remove_output_channel)
+        btn_layout.addWidget(btn_remove)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        # Tabs for attributes and options
+        tabs = QTabWidget()
+
+        # Output attributes
+        attr_widget = QWidget()
+        attr_layout = QVBoxLayout(attr_widget)
+        self.attr_editor = AttributeEditor()
+        attr_layout.addWidget(self.attr_editor)
+        tabs.addTab(attr_widget, "Attributes")
+
+        # Output options (compression, etc)
+        options_widget = QWidget()
+        options_layout = QVBoxLayout(options_widget)
+        
+        options_layout.addWidget(QLabel("Compression:"))
+        self.compression_combo = QComboBox()
+        self.compression_combo.addItems(["zip", "rle", "piz", "none"])
+        self.compression_combo.currentTextChanged.connect(self._on_compression_changed)
+        options_layout.addWidget(self.compression_combo)
+        
+        options_layout.addStretch()
+        tabs.addTab(options_widget, "Options")
+
+        layout.addWidget(tabs, 1)
+
+        return panel
+
+    def _create_export_panel(self) -> QWidget:
+        """Export settings and log panel."""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+
+        layout.addWidget(QLabel("Export Settings"))
+
+        # Output directory
+        layout.addWidget(QLabel("Output Directory:"))
+        dir_layout = QHBoxLayout()
+        self.output_dir_edit = QLineEdit()
+        dir_btn = QPushButton("Browse...")
+        dir_btn.clicked.connect(self._on_browse_output_dir)
+        dir_layout.addWidget(self.output_dir_edit)
+        dir_layout.addWidget(dir_btn)
+        layout.addLayout(dir_layout)
+
+        # Filename pattern
+        layout.addWidget(QLabel("Filename Pattern:"))
+        self.filename_pattern_edit = QLineEdit()
+        self.filename_pattern_edit.setText("output.%04d.exr")
+        self.filename_pattern_edit.textChanged.connect(self._on_filename_pattern_changed)
+        layout.addWidget(self.filename_pattern_edit)
+
+        # Progress bar
+        layout.addWidget(QLabel("Progress:"))
+        self.progress_bar = QTextEdit()
+        self.progress_bar.setMaximumHeight(40)
+        self.progress_bar.setReadOnly(True)
+        layout.addWidget(self.progress_bar)
+
+        # Export button
+        btn_export = QPushButton("EXPORT")
+        btn_export.setStyleSheet(
+            "background-color: #4CAF50; color: white; font-weight: bold; font-size: 14px;"
+        )
+        btn_export.clicked.connect(self._on_export)
+        layout.addWidget(btn_export)
+
+        # Log
+        layout.addWidget(QLabel("Log:"))
+        self.log = QTextEdit()
+        self.log.setReadOnly(True)
+        layout.addWidget(self.log, 1)
+
+        return panel
+
+    def _connect_signals(self) -> None:
+        """Connect signals from services to UI."""
+        self.export_manager.progress.connect(self._on_export_progress)
+        self.export_manager.log.connect(self._on_export_log)
+        self.export_manager.finished.connect(self._on_export_finished)
+        self.attr_editor.attributes_changed.connect(self._on_attributes_changed)
+
+    # ========== Sequence Management ==========
+
+    def _on_load_sequence(self) -> None:
+        """Handle 'Load Sequence' button."""
+        path = QFileDialog.getExistingDirectory(self, "Select Sequence Directory")
+        if not path:
+            return
+
+        pattern_str, ok = self._ask_pattern_dialog()
+        if not ok:
+            return
+
+        # Discover frames
+        frames = SequenceDiscovery.discover_frames(pattern_str, path)
+        if not frames:
+            self._append_log(f"[ERROR] No frames found matching pattern: {pattern_str}")
+            return
+
+        # Probe first frame
+        pattern = SequencePathPattern(pattern_str)
+        first_frame_path = str(Path(path) / pattern.format(frames[0]))
+
+        probe = OiioAdapter.probe_file(first_frame_path)
+        if not probe:
+            self._append_log(f"[ERROR] Failed to probe file: {first_frame_path}")
+            return
+
+        # Create sequence spec
+        seq_id = f"seq_{len(self.state.sequences)}"
+        seq = SequenceSpec(
+            id=seq_id,
+            display_name=f"Seq: {Path(path).name} ({len(frames)} frames)",
+            pattern=pattern,
+            frames=frames,
+            static_probe=probe,
+        )
+
+        self.state.add_sequence(seq)
+        self.seq_list_model.add_sequence(seq)
+        num_channels = probe.main_subimage.spec.nchannels if probe.main_subimage else 0
+        self._append_log(
+            f"[OK] Loaded sequence: {len(frames)} frames, "
+            f"{num_channels} channels"
+        )
+
+    def _on_remove_sequence(self) -> None:
+        """Handle 'Remove' button for sequences."""
+        current = self.sequence_list.currentIndex()
+        if not current.isValid():
+            return
+
+        seq = self.seq_list_model.get_sequence(current.row())
+        if seq:
+            self.state.remove_sequence(seq.id)
+            self.seq_list_model.remove_at(current.row())
+            self.ch_list_model.set_channels([])
+            self._append_log(f"[OK] Removed sequence: {seq.display_name}")
+
+    def _on_sequence_selected(self, index) -> None:
+        """Handle sequence selection."""
+        seq = self.seq_list_model.get_sequence(index.row())
+        if seq and seq.static_probe and seq.static_probe.main_subimage:
+            channels = seq.static_probe.main_subimage.channels
+            self.ch_list_model.set_channels(channels)
+            self._append_log(f"[OK] Selected sequence: {seq.display_name} ({len(channels)} channels)")
+
+    # ========== Output Channel Management ==========
+
+    def _on_add_channel_to_output(self) -> None:
+        """Handle 'Add Selected to Output' button."""
+        ch_index = self.channel_list.currentIndex()
+        seq_index = self.sequence_list.currentIndex()
+
+        if not ch_index.isValid() or not seq_index.isValid():
+            self._append_log("[WARNING] Please select a sequence and a channel")
+            return
+
+        seq = self.seq_list_model.get_sequence(seq_index.row())
+        ch = self.ch_list_model.get_channel(ch_index.row())
+
+        if not seq or not ch:
+            return
+
+        # Create output channel
+        output_ch = OutputChannel(
+            output_name=ch.name,
+            source=ChannelSourceRef(
+                sequence_id=seq.id,
+                channel_name=ch.name,
+                subimage_index=0,
+            ),
+        )
+
+        self.state.add_output_channel(output_ch)
+        self.out_ch_list_model.add_channel(output_ch)
+        self._append_log(f"[OK] Added output channel: {ch.name}")
+
+    def _on_remove_output_channel(self) -> None:
+        """Handle 'Remove' button for output channels."""
+        current = self.output_list.currentIndex()
+        if not current.isValid():
+            return
+
+        ch = self.out_ch_list_model.get_channel(current.row())
+        if ch:
+            self.state.remove_output_channel(current.row())
+            self.out_ch_list_model.remove_at(current.row())
+            self._append_log(f"[OK] Removed output channel: {ch.output_name}")
+
+    # ========== Attribute Management ==========
+
+    def _on_attributes_changed(self, attrs) -> None:
+        """Handle attribute changes."""
+        self.state.set_output_attributes(attrs)
+        self._append_log(f"[OK] Updated attributes: {len(attrs.attributes)} attributes")
+
+    # ========== Export Settings ==========
+
+    def _on_browse_output_dir(self) -> None:
+        """Handle 'Browse...' for output directory."""
+        path = QFileDialog.getExistingDirectory(self, "Select Output Directory")
+        if path:
+            self.output_dir_edit.setText(path)
+            self.state.set_output_dir(path)
+
+    def _on_filename_pattern_changed(self, text: str) -> None:
+        """Handle filename pattern change."""
+        self.state.set_filename_pattern(text)
+
+    def _on_compression_changed(self, compression: str) -> None:
+        """Handle compression selection."""
+        self.state.set_compression(compression)
+
+    # ========== Export ==========
+
+    def _on_export(self) -> None:
+        """Handle 'EXPORT' button."""
+        # Update state from UI
+        output_dir = self.output_dir_edit.text()
+        if not output_dir:
+            self._append_log("[ERROR] Output directory not set")
+            return
+
+        self.state.set_output_dir(output_dir)
+        self.state.set_filename_pattern(self.filename_pattern_edit.text())
+        self.state.set_compression(self.compression_combo.currentText())
+
+        # Validate
+        export_spec = self.state.get_export_spec()
+        issues = ValidationEngine.validate_export(export_spec, self.state.sequences)
+
+        errors = [i for i in issues if i.severity == ValidationSeverity.ERROR]
+        warnings = [i for i in issues if i.severity == ValidationSeverity.WARNING]
+
+        self._append_log(f"\n[VALIDATION] {len(errors)} errors, {len(warnings)} warnings")
+        for issue in errors:
+            self._append_log(f"  ERROR: {issue}")
+        for issue in warnings:
+            self._append_log(f"  WARNING: {issue}")
+
+        if errors:
+            self._append_log("[BLOCKED] Export blocked due to validation errors")
+            return
+
+        # Start export
+        self._append_log("\n[EXPORT] Starting export...")
+        self.export_manager.start_export(export_spec, self.state.sequences)
+
+    def _on_export_progress(self, percent: int, message: str) -> None:
+        """Handle export progress."""
+        self.progress_bar.setText(f"{percent}% - {message}")
+
+    def _on_export_log(self, message: str) -> None:
+        """Handle export log messages."""
+        self._append_log(f"[EXPORT] {message}")
+
+    def _on_export_finished(self, success: bool, message: str) -> None:
+        """Handle export completion."""
+        if success:
+            self._append_log(f"\n[SUCCESS] {message}")
+        else:
+            self._append_log(f"\n[FAILED] {message}")
+        self.progress_bar.setText("")
+
+    # ========== Utilities ==========
+
+    def _append_log(self, message: str) -> None:
+        """Append to log."""
+        self.log.append(message)
+
+    def _ask_pattern_dialog(self) -> tuple[str, bool]:
+        """Ask user for sequence pattern."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Sequence Pattern")
+        layout = QVBoxLayout(dialog)
+
+        layout.addWidget(
+            QLabel("Enter sequence pattern (e.g., image.%04d.exr or image.####.exr):")
+        )
+        edit = QLineEdit()
+        edit.setText("image.%04d.exr")
+        layout.addWidget(edit)
+
+        btn_ok = QPushButton("OK")
+        btn_cancel = QPushButton("Cancel")
+        btn_ok.clicked.connect(dialog.accept)
+        btn_cancel.clicked.connect(dialog.reject)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addWidget(btn_ok)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
+
+        ok = dialog.exec() == QDialog.DialogCode.Accepted
+        return edit.text(), ok

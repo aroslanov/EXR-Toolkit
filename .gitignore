@@ -1,2 +1,3 @@
 .prompts
 .venv
+__pycache__
