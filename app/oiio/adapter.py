@@ -169,11 +169,11 @@ class OiioAdapter:
         height = spec.height
         nchannels = spec.nchannels
         
-        channel_names = spec.channelnames if hasattr(spec, 'channelnames') else []
+        channel_names = list(spec.channelnames) if hasattr(spec, 'channelnames') else []
         if not channel_names:
             channel_names = [f"channel{i}" for i in range(nchannels)]
         
-        channel_formats = spec.channelformats if hasattr(spec, 'channelformats') else []
+        channel_formats = list(spec.channelformats) if hasattr(spec, 'channelformats') else []
         if not channel_formats:
             fmt_str = str(spec.format) if hasattr(spec, 'format') else "unknown"
             channel_formats = [fmt_str] * len(channel_names)
@@ -195,4 +195,10 @@ class OiioAdapter:
     @staticmethod
     def get_oiio_version() -> str:
         """Return OIIO version string."""
-        return oiio.getVersionString() if hasattr(oiio, 'getVersionString') else "unknown"
+        try:
+            # Try common version attributes
+            if hasattr(oiio, '__version__'):
+                return str(oiio.__version__)
+        except Exception:
+            pass
+        return "unknown"

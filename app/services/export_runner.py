@@ -150,6 +150,9 @@ class ExportRunner(QRunnable):
         if not first_seq or not first_seq.static_probe:
             return None, {}
 
+        if not first_seq.static_probe.main_subimage:
+            return None, {}
+
         spec = first_seq.static_probe.main_subimage.spec
         width, height = spec.width, spec.height
 
