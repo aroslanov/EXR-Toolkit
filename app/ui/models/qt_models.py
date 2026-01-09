@@ -8,8 +8,8 @@ Implements MVC pattern for:
 - Output attribute table
 """
 
-from PySide6.QtCore import Qt, QAbstractListModel, QModelIndex, QAbstractTableModel
-from typing import List, Optional
+from PySide6.QtCore import Qt, QAbstractListModel, QModelIndex, QAbstractTableModel, QPersistentModelIndex
+from typing import Any, List, Optional, Union
 
 from ...core import SequenceSpec, ChannelSpec, OutputChannel, AttributeSpec
 
@@ -48,19 +48,23 @@ class SequenceListModel(QAbstractListModel):
             return self.sequences[index]
         return None
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def rowCount(self, parent: Union[QModelIndex, QPersistentModelIndex] = QModelIndex()) -> int:
         return len(self.sequences)
 
-    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
+    def data(
+        self,
+        index: Union[QModelIndex, QPersistentModelIndex],
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> Any:
         if not index.isValid():
             return None
 
         seq = self.sequences[index.row()]
 
-        if role == Qt.DisplayRole:
+        if role == Qt.ItemDataRole.DisplayRole:
             return f"{seq.display_name} ({len(seq.frames)} frames)"
 
-        if role == Qt.UserRole:
+        if role == Qt.ItemDataRole.UserRole:
             return seq.id
 
         return None
@@ -85,19 +89,23 @@ class ChannelListModel(QAbstractListModel):
             return self.channels[index]
         return None
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def rowCount(self, parent: Union[QModelIndex, QPersistentModelIndex] = QModelIndex()) -> int:
         return len(self.channels)
 
-    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
+    def data(
+        self,
+        index: Union[QModelIndex, QPersistentModelIndex],
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> Any:
         if not index.isValid():
             return None
 
         ch = self.channels[index.row()]
 
-        if role == Qt.DisplayRole:
+        if role == Qt.ItemDataRole.DisplayRole:
             return f"{ch.name} ({ch.format.oiio_type})"
 
-        if role == Qt.UserRole:
+        if role == Qt.ItemDataRole.UserRole:
             return ch.name
 
         return None
@@ -145,19 +153,23 @@ class OutputChannelListModel(QAbstractListModel):
             return self.channels[index]
         return None
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def rowCount(self, parent: Union[QModelIndex, QPersistentModelIndex] = QModelIndex()) -> int:
         return len(self.channels)
 
-    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
+    def data(
+        self,
+        index: Union[QModelIndex, QPersistentModelIndex],
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> Any:
         if not index.isValid():
             return None
 
         ch = self.channels[index.row()]
 
-        if role == Qt.DisplayRole:
+        if role == Qt.ItemDataRole.DisplayRole:
             return f"{ch.output_name} <- {ch.source.channel_name} ({ch.source.sequence_id})"
 
-        if role == Qt.UserRole:
+        if role == Qt.ItemDataRole.UserRole:
             return ch.output_name
 
         return None
@@ -205,26 +217,35 @@ class AttributeTableModel(QAbstractTableModel):
             return self.attributes[index]
         return None
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def rowCount(self, parent: Union[QModelIndex, QPersistentModelIndex] = QModelIndex()) -> int:
         return len(self.attributes)
 
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def columnCount(self, parent: Union[QModelIndex, QPersistentModelIndex] = QModelIndex()) -> int:
         return len(self.COLUMNS)
 
-    def headerData(self, section: int, orientation: int, role: int = Qt.DisplayRole):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+    def headerData(
+        self,
+        section: int,
+        orientation: Qt.Orientation,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> Any:
+        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
             if 0 <= section < len(self.COLUMNS):
                 return self.COLUMNS[section]
         return None
 
-    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
+    def data(
+        self,
+        index: Union[QModelIndex, QPersistentModelIndex],
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> Any:
         if not index.isValid():
             return None
 
         attr = self.attributes[index.row()]
         col = index.column()
 
-        if role == Qt.DisplayRole:
+        if role == Qt.ItemDataRole.DisplayRole:
             if col == 0:
                 return attr.name
             elif col == 1:
@@ -236,14 +257,22 @@ class AttributeTableModel(QAbstractTableModel):
             elif col == 4:
                 return "✓" if attr.editable else "✗"
 
-        if role == Qt.UserRole:
+        if role == Qt.ItemDataRole.UserRole:
             return attr
 
         return None
 
-    def setData(self, index: QModelIndex, value, role: int = Qt.EditRole) -> bool:
+    def setData(
+        self,
+        index: Union[QModelIndex, QPersistentModelIndex],
+        value: Any,
+        role: int = Qt.ItemDataRole.EditRole,
+    ) -> bool:
         """Support editing (basic implementation)."""
         if not index.isValid():
+            return False
+
+        if role != Qt.ItemDataRole.EditRole:
             return False
 
         attr = self.attributes[index.row()]
@@ -259,9 +288,9 @@ class AttributeTableModel(QAbstractTableModel):
         self.dataChanged.emit(index, index)
         return True
 
-    def flags(self, index: QModelIndex):
+    def flags(self, index: Union[QModelIndex, QPersistentModelIndex]):
         if not index.isValid():
-            return Qt.NoItemFlags
+            return Qt.ItemFlag.NoItemFlags
 
         attr = self.attributes[index.row()]
         col = index.column()
@@ -270,6 +299,6 @@ class AttributeTableModel(QAbstractTableModel):
 
         # Name and Value columns are editable
         if col in [0, 2]:
-            return default_flags | Qt.ItemIsEditable
+            return default_flags | Qt.ItemFlag.ItemIsEditable
 
         return default_flags

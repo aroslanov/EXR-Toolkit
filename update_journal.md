@@ -170,3 +170,71 @@
 - End-to-end testing with sample EXR files
 - Manual verification with oiiotool
 - Optimization and edge case handling
+
+## Session 3 — 2026-01-09
+
+### Goal
+- Resolve remaining Pylance diagnostics in the Qt model layer.
+
+### Work Completed
+- Fixed override typing issues in app/ui/models/qt_models.py to better match PySide6 stubs.
+
+### Changes (qt_models.py)
+- Added missing typing imports and return annotations for model overrides.
+- Changed AttributeTableModel.headerData() orientation param from int to Qt.Orientation.
+- Added a role gate in AttributeTableModel.setData() (returns False unless role == Qt.EditRole).
+- Annotated AttributeTableModel.flags() return type as Qt.ItemFlags.
+
+### Verification
+- Ran: .\\.venv\\Scripts\\python -m py_compile app/ui/models/qt_models.py
+- Ran: .\\.venv\\Scripts\\python -c "from app.ui.models.qt_models import SequenceListModel, ChannelListModel, OutputChannelListModel, AttributeTableModel; print('imports_ok')"
+- Result: imports_ok
+
+### Notes
+- Pylance previously reported incompatible method override for rowCount() due to parent parameter typing. This file now uses Union[QModelIndex, QPersistentModelIndex] for rowCount/columnCount parent parameters.
+
+### Follow-up Fix (Pylance Qt enum attributes)
+- Symptom: Pylance reported unknown attributes on Qt (e.g. Qt.DisplayRole, Qt.UserRole, Qt.EditRole, Qt.NoItemFlags, Qt.ItemIsEditable, Qt.Horizontal).
+- Fix: Switched to Qt6-style enums in app/ui/models/qt_models.py:
+  - Qt.ItemDataRole.DisplayRole / UserRole / EditRole
+  - Qt.ItemFlag.NoItemFlags / ItemIsEditable
+  - Qt.Orientation.Horizontal
+
+### Verification (Follow-up)
+- Ran: .\\.venv\\Scripts\\python -m py_compile app/ui/models/qt_models.py
+- Ran: .\\.venv\\Scripts\\python -c "from app.ui.models.qt_models import SequenceListModel, ChannelListModel, OutputChannelListModel, AttributeTableModel; print('imports_ok')"
+- Result: imports_ok
+
+### Follow-up Fix (Pylance override: data/index type)
+- Symptom: Pylance reported incompatible override for QAbstractItemModel.data() because stubs accept QModelIndex | QPersistentModelIndex.
+- Fix: Updated qt_models.py signatures to accept Union[QModelIndex, QPersistentModelIndex] for:
+  - SequenceListModel.data
+  - ChannelListModel.data
+  - OutputChannelListModel.data
+  - AttributeTableModel.data
+  - AttributeTableModel.setData
+  - AttributeTableModel.flags
+
+### Verification (Override Fix)
+- Ran: .\\.venv\\Scripts\\python -m py_compile app/ui/models/qt_models.py
+- Ran: .\\.venv\\Scripts\\python -c "from app.ui.models.qt_models import SequenceListModel, ChannelListModel, OutputChannelListModel, AttributeTableModel; print('imports_ok')"
+- Result: imports_ok
+
+### Follow-up Fix (Pylance: Qt.ItemFlags unknown)
+- Symptom: Pylance reported "Cannot access attribute 'ItemFlags' for class 'type[Qt]'".
+- Cause: In PySide6, Qt.ItemFlags is not exposed as an attribute on Qt; using it in annotations triggers Pylance.
+- Fix: Updated AttributeTableModel.flags() return annotation to use PySide6's QFlag (imported from PySide6.QtCore) instead of Qt.ItemFlags.
+
+### Verification (ItemFlags Fix)
+- Ran: .\\.venv\\Scripts\\python -m py_compile app/ui/models/qt_models.py
+- Ran: .\\.venv\\Scripts\\python -c "from app.ui.models.qt_models import AttributeTableModel; print('imports_ok')"
+- Result: imports_ok
+
+### Follow-up Fix (Pylance: QFlag annotation)
+- Symptom: Pylance flagged the flags() return annotation `-> QFlag` as invalid (QFlag is a built-in function in PySide6, not a class/type).
+- Fix: Removed the QFlag import and removed the explicit return annotation from AttributeTableModel.flags().
+
+### Verification (QFlag Fix)
+- Ran: .\\.venv\\Scripts\\python -m py_compile app/ui/models/qt_models.py
+- Ran: .\\.venv\\Scripts\\python -c "from app.ui.models.qt_models import AttributeTableModel; m=AttributeTableModel(); print('imports_ok')"
+- Result: imports_ok
