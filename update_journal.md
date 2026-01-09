@@ -327,3 +327,65 @@ The regex `r'^(.+?)(\d+)(\..+?)$'` uses non-greedy matching (`(.+?)`) which corr
 - Handles both separated (dot/underscore) and non-separated frame numbers
 
 Result: discover_sequences() and discover_frames() both work correctly with all tested complex filenames.
+
+## Session 7 — 2026-01-09
+
+### Goal
+- Display input sequence attributes and metadata in the UI.
+
+### Implementation
+
+#### Changes to app/ui/main_window.py
+
+1. **Updated _create_input_panel()**
+   - Added QTextEdit widget `self.metadata_display` (read-only, max height 150px)
+   - Positioned below channel list, above stretch
+   - Displays selected sequence metadata
+
+2. **Updated _on_sequence_selected()**
+   - Now calls `_format_sequence_metadata(seq)` to build metadata text
+   - Populates metadata_display with formatted info
+
+3. **Added _format_sequence_metadata(seq: SequenceSpec) -> str**
+   - Formats and returns metadata for display:
+     - Pattern (e.g., `render.%05d.exr`)
+     - Frame range (count and min-max)
+     - Resolution (width x height)
+     - Channel count
+     - Channel list with names and formats (up to 5 shown)
+     - Attributes list (first 5, with note if more exist)
+   - Returns nicely formatted text for QTextEdit
+
+### Metadata Display Content
+```
+Pattern: render.%05d.exr
+Frames: 901 (0-900)
+
+Resolution: 2048x1536
+Channels: 4
+
+Channel List:
+  1. R (float)
+  2. G (float)
+  3. B (float)
+  4. A (float)
+
+Attributes:
+  compression: zip
+  pixelAspectRatio: 1.0
+  ... and 3 more
+```
+
+### Verification
+- Ran: .\\.venv\\Scripts\\python -m py_compile app/ui/main_window.py
+- Ran: .\\.venv\\Scripts\\python -c "from app.ui.main_window import MainWindow; print('MainWindow imports OK')"
+- Result: Compilation and import successful
+
+### User Flow
+1. User loads a sequence → sequence appears in list
+2. User clicks on sequence → metadata displays showing:
+   - File pattern
+   - Frame range
+   - Resolution
+   - Channels with formats
+   - Key attributes

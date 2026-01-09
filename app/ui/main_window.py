@@ -121,6 +121,12 @@ class MainWindow(QMainWindow):
         btn_add_to_output.clicked.connect(self._on_add_channel_to_output)
         layout.addWidget(btn_add_to_output)
 
+        layout.addWidget(QLabel("Metadata"))
+        self.metadata_display = QTextEdit()
+        self.metadata_display.setReadOnly(True)
+        self.metadata_display.setMaximumHeight(150)
+        layout.addWidget(self.metadata_display)
+
         layout.addStretch()
         return panel
 
@@ -303,7 +309,48 @@ class MainWindow(QMainWindow):
         if seq and seq.static_probe and seq.static_probe.main_subimage:
             channels = seq.static_probe.main_subimage.channels
             self.ch_list_model.set_channels(channels)
+            
+            # Build and display metadata
+            metadata_text = self._format_sequence_metadata(seq)
+            self.metadata_display.setText(metadata_text)
+            
             self._append_log(f"[OK] Selected sequence: {seq.display_name} ({len(channels)} channels)")
+
+    def _format_sequence_metadata(self, seq: SequenceSpec) -> str:
+        """Format sequence metadata for display."""
+        lines = []
+        
+        if seq.static_probe and seq.static_probe.main_subimage:
+            spec = seq.static_probe.main_subimage.spec
+            
+            # Basic info
+            lines.append(f"Pattern: {seq.pattern}")
+            lines.append(f"Frames: {len(seq.frames)} ({min(seq.frames) if seq.frames else 0}-{max(seq.frames) if seq.frames else 0})")
+            lines.append("")
+            
+            # Resolution
+            lines.append(f"Resolution: {spec.width}x{spec.height}")
+            lines.append(f"Channels: {spec.nchannels}")
+            lines.append("")
+            
+            # Channel details
+            if spec.channelnames:
+                lines.append("Channel List:")
+                for i, ch_name in enumerate(spec.channelnames):
+                    fmt = spec.channelformats[i] if i < len(spec.channelformats) else "unknown"
+                    lines.append(f"  {i+1}. {ch_name} ({fmt})")
+                lines.append("")
+            
+            # Attributes
+            if seq.static_probe.main_subimage.attributes and seq.static_probe.main_subimage.attributes.attributes:
+                lines.append("Attributes:")
+                attrs = seq.static_probe.main_subimage.attributes.attributes
+                for attr in attrs[:5]:  # Show first 5 attributes
+                    lines.append(f"  {attr.name}: {attr.value}")
+                if len(attrs) > 5:
+                    lines.append(f"  ... and {len(attrs)-5} more")
+        
+        return "\n".join(lines) if lines else "No metadata available"
 
     # ========== Output Channel Management ==========
 
