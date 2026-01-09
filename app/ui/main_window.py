@@ -8,6 +8,7 @@ Orchestrates the three main panels:
 """
 
 from pathlib import Path
+from typing import Optional
 
 from PySide6.QtWidgets import (
     QMainWindow,
@@ -230,19 +231,35 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
-        pattern_str, ok = self._ask_pattern_dialog()
-        if not ok:
+        # Auto-discover sequences in the directory
+        discovered = SequenceDiscovery.discover_sequences(path)
+        if not discovered:
+            self._append_log(f"[ERROR] No image sequences found in directory: {path}")
             return
 
-        # Discover frames
-        frames = SequenceDiscovery.discover_frames(pattern_str, path)
-        if not frames:
+        # If multiple sequences, let user choose; if one, use it directly
+        if len(discovered) == 1:
+            pattern_str, frames = discovered[0]
+        else:
+            pattern_str, frames = self._ask_sequence_selection_dialog(discovered)
+            if pattern_str is None:
+                return
+
+        # Confirm/show the discovered sequence
+        if frames is not None:
+            self._append_log(f"[INFO] Auto-discovered sequence: {pattern_str} ({len(frames)} frames)")
+        else:
+            self._append_log(f"[INFO] Auto-discovered sequence: {pattern_str}")
+
+        # Discover frames again to validate
+        frames_validated = SequenceDiscovery.discover_frames(pattern_str, path)
+        if not frames_validated:
             self._append_log(f"[ERROR] No frames found matching pattern: {pattern_str}")
             return
 
         # Probe first frame
         pattern = SequencePathPattern(pattern_str)
-        first_frame_path = str(Path(path) / pattern.format(frames[0]))
+        first_frame_path = str(Path(path) / pattern.format(frames_validated[0]))
 
         probe = OiioAdapter.probe_file(first_frame_path)
         if not probe:
@@ -253,9 +270,9 @@ class MainWindow(QMainWindow):
         seq_id = f"seq_{len(self.state.sequences)}"
         seq = SequenceSpec(
             id=seq_id,
-            display_name=f"Seq: {Path(path).name} ({len(frames)} frames)",
+            display_name=f"Seq: {Path(path).name} ({len(frames_validated)} frames)",
             pattern=pattern,
-            frames=frames,
+            frames=frames_validated,
             static_probe=probe,
         )
 
@@ -263,7 +280,7 @@ class MainWindow(QMainWindow):
         self.seq_list_model.add_sequence(seq)
         num_channels = probe.main_subimage.spec.nchannels if probe.main_subimage else 0
         self._append_log(
-            f"[OK] Loaded sequence: {len(frames)} frames, "
+            f"[OK] Loaded sequence: {len(frames_validated)} frames, "
             f"{num_channels} channels"
         )
 
@@ -437,3 +454,35 @@ class MainWindow(QMainWindow):
 
         ok = dialog.exec() == QDialog.DialogCode.Accepted
         return edit.text(), ok
+
+    def _ask_sequence_selection_dialog(
+        self, sequences: list[tuple[str, list[int]]]
+    ) -> tuple[Optional[str], Optional[list[int]]]:
+        """Show dialog for user to select from multiple sequences."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Sequence")
+        dialog.setGeometry(400, 300, 500, 300)
+        layout = QVBoxLayout(dialog)
+
+        layout.addWidget(QLabel("Multiple sequences detected. Select one:"))
+
+        combo = QComboBox()
+        for pattern, frames in sequences:
+            combo.addItem(f"{pattern} ({len(frames)} frames)", (pattern, frames))
+        layout.addWidget(combo)
+
+        btn_ok = QPushButton("OK")
+        btn_cancel = QPushButton("Cancel")
+        btn_ok.clicked.connect(dialog.accept)
+        btn_cancel.clicked.connect(dialog.reject)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addWidget(btn_ok)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
+
+        ok = dialog.exec() == QDialog.DialogCode.Accepted
+        if ok:
+            pattern, frames = combo.currentData()
+            return pattern, frames
+        return None, None

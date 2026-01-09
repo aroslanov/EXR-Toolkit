@@ -238,3 +238,92 @@
 - Ran: .\\.venv\\Scripts\\python -m py_compile app/ui/models/qt_models.py
 - Ran: .\\.venv\\Scripts\\python -c "from app.ui.models.qt_models import AttributeTableModel; m=AttributeTableModel(); print('imports_ok')"
 - Result: imports_ok
+
+## Session 4 — 2026-01-09
+
+### Goal
+- Improve sequence loading UX: auto-discover sequences, handle multiple sequences per folder, show patterns in UI.
+
+### Changes
+
+#### 1. app/core/sequence.py
+- Added SequenceDiscovery.discover_sequences() static method.
+- Heuristic-based auto-detection: scans directory for image files (exr/jpg/png/tiff).
+- Groups files by base pattern (both %04d and #### formats).
+- Returns list of (pattern_str, frame_list) tuples.
+
+#### 2. app/ui/main_window.py
+- Added `from typing import Optional` import.
+- Refactored _on_load_sequence():
+  - Now calls SequenceDiscovery.discover_sequences(path) first.
+  - If multiple sequences found, shows selection dialog.
+  - Logs discovered pattern (e.g., "image.%04d.exr") to user.
+- Added _ask_sequence_selection_dialog():
+  - QComboBox showing all detected sequences with frame counts.
+  - User selects one and clicks OK.
+  - Returns (pattern_str, frame_list) tuple.
+
+### Verification
+- Ran: .\\.venv\\Scripts\\python -m py_compile app/core/sequence.py app/ui/main_window.py
+- Ran: .\\.venv\\Scripts\\python -c "from app.ui.main_window import MainWindow; from app.core.sequence import SequenceDiscovery; print('imports_ok')"
+- Result: imports_ok
+
+### Flow
+1. User clicks "Load Sequence" → selects directory.
+2. App auto-discovers sequences using heuristic pattern matching.
+3. If 1 sequence found: use it directly, log pattern.
+4. If multiple found: show QDialog with dropdown list.
+5. Log result to user with discovered pattern.
+
+## Session 5 — 2026-01-09
+
+### Bug Report
+- User loads directory with files `render.00000.exr`, `render.00001.exr`, ... `render.00900.exr`
+- Auto-discovery shows: "Auto-discovered sequence: render.0%04d.exr (901 frames)" (incorrect)
+- Subsequent frame discovery fails: "No frames found matching pattern: render.0%04d.exr"
+
+### Root Cause
+- discover_sequences() regex `r'(.+?)(\d{4})(\..+?)$'` matches exactly 4 digits
+- File `render.00000.exr` has 5 digits, so regex matched `render.0` + `0000` + `.exr`
+- Generated incorrect pattern `render.0%04d.exr`
+- discover_frames() then couldn't find any files matching this wrong pattern
+
+### Fix
+
+#### 1. discover_sequences() regex
+- Changed from fixed-digit matching (`\d{4}`) to variable-length matching (`\d+`)
+- Now correctly identifies frame number length and generates appropriate `%0Nd` format
+- Files with 5 digits → generates `%05d` format
+- Files with 4 digits → generates `%04d` format
+
+#### 2. _pattern_to_regex() function
+- Problem: regex `\\%0\d+d` was looking for escaped `%`, but `re.escape()` doesn't escape `%`
+- Fixed: changed regex from `\\%0\d+d` to `%0\d+d` (no backslash prefix)
+- Used lambda in both substitutions to avoid string escaping issues
+
+### Verification
+- Test: Created temp directory with `render.00000.exr` through `render.00900.exr`
+- discover_sequences() → correctly returns `('render.%05d.exr', [0,1,2,100,900])`
+- discover_frames('render.%05d.exr', tmpdir) → correctly returns `[0,1,2,100,900]`
+- Result: Both discovery methods now work correctly with variable-length frame numbers
+
+### Code Changes
+- app/core/sequence.py: Updated discover_sequences() and _pattern_to_regex()
+
+## Session 6 — 2026-01-09
+
+### Verification of Complex Filename Support
+
+Tested the updated sequence discovery with various filename patterns to ensure it handles:
+1. Simple 5-digit frames: `render.00000.exr` → `render.%05d.exr` ✓
+2. Simple 4-digit frames: `image_0001.jpg` → `image_%04d.jpg` ✓
+3. Complex filenames with dot separator: `render_01_260109_.000000.exr` → `render_01_260109_.%06d.exr` ✓
+4. Complex filenames without separator: `render_01_260109_000000.exr` → `render_01_260109_%06d.exr` ✓
+
+The regex `r'^(.+?)(\d+)(\..+?)$'` uses non-greedy matching (`(.+?)`) which correctly:
+- Matches the minimal prefix before the frame number
+- Captures the digit sequence before the extension
+- Works with files containing multiple numeric components
+- Handles both separated (dot/underscore) and non-separated frame numbers
+
+Result: discover_sequences() and discover_frames() both work correctly with all tested complex filenames.
