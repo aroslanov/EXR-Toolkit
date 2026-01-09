@@ -389,3 +389,25 @@ Attributes:
    - Resolution
    - Channels with formats
    - Key attributes
+
+## Session 8 — 2026-01-09
+
+### Goal
+- Remove truncation from metadata display; show ALL attributes instead of "... and N more"
+
+### Changes to app/ui/main_window.py
+
+#### _format_sequence_metadata() method
+- **Before:** Attributes limited to first 5 with "... and N more" note
+- **After:** Display ALL attributes without truncation
+- Changed loop: or attr in attrs[:5]: → or attr in attrs:
+- Removed: Conditional that appended "... and N more" message
+
+### Verification
+- Ran: .\\.venv\\Scripts\\python -m py_compile app/ui/main_window.py
+- Result: Compilation OK
+
+### Result
+- Metadata display now shows complete list of all attributes
+- No truncation with "... and N more" text
+- Full visibility into sequence metadata

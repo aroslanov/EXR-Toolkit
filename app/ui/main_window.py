@@ -345,10 +345,8 @@ class MainWindow(QMainWindow):
             if seq.static_probe.main_subimage.attributes and seq.static_probe.main_subimage.attributes.attributes:
                 lines.append("Attributes:")
                 attrs = seq.static_probe.main_subimage.attributes.attributes
-                for attr in attrs[:5]:  # Show first 5 attributes
+                for attr in attrs:  # Show ALL attributes
                     lines.append(f"  {attr.name}: {attr.value}")
-                if len(attrs) > 5:
-                    lines.append(f"  ... and {len(attrs)-5} more")
         
         return "\n".join(lines) if lines else "No metadata available"
 
