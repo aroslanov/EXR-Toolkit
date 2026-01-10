@@ -164,6 +164,7 @@ class MainWindow(QMainWindow):
 
         self.output_list = QListView()
         self.output_list.setModel(self.out_ch_list_model)
+        self.output_list.setSelectionMode(QListView.SelectionMode.MultiSelection)
         layout.addWidget(self.output_list, 1)  # Stretch factor 1
 
         btn_layout = QHBoxLayout()
@@ -468,16 +469,23 @@ class MainWindow(QMainWindow):
             self._append_log(f"[OK] Added output channel: {ch.name}")
 
     def _on_remove_output_channel(self) -> None:
-        """Handle 'Remove' button for output channels."""
-        current = self.output_list.currentIndex()
-        if not current.isValid():
+        """Handle 'Remove' button for output channels (multi-select support)."""
+        # Get all selected indices (multi-select)
+        selected_indices = self.output_list.selectedIndexes()
+        if not selected_indices:
+            self._append_log("[WARNING] Please select at least one output channel")
             return
 
-        ch = self.out_ch_list_model.get_channel(current.row())
-        if ch:
-            self.state.remove_output_channel(current.row())
-            self.out_ch_list_model.remove_at(current.row())
-            self._append_log(f"[OK] Removed output channel: {ch.output_name}")
+        # Sort indices in reverse order to remove from highest to lowest
+        # This preserves indices for remaining items
+        rows_to_remove = sorted([idx.row() for idx in selected_indices], reverse=True)
+
+        for row in rows_to_remove:
+            ch = self.out_ch_list_model.get_channel(row)
+            if ch:
+                self.state.remove_output_channel(row)
+                self.out_ch_list_model.remove_at(row)
+                self._append_log(f"[OK] Removed output channel: {ch.output_name}")
 
     def _on_add_attributes_to_output(self) -> None:
         """Handle 'Add Selected to Output Attributes' button."""

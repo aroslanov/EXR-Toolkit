@@ -277,3 +277,33 @@ Layout has been fixed to distribute space equally across sections.
 
 ### Status: COMPLETE
 Frame range selector feature has been successfully implemented and syntax verified.
+
+## 2026-01-09 - Output Channel Multi-Select
+
+### Task: Enable multi-select for output channel removal
+- Users can now select multiple output channels at once
+- Multiple channels can be removed in a single action
+
+### Changes Implemented:
+
+1. **app/ui/main_window.py - _create_output_panel()**
+   - Added setSelectionMode(QListView.SelectionMode.MultiSelection) to output_list
+
+2. **app/ui/main_window.py - _on_remove_output_channel()**
+   - Updated to get all selectedIndexes() instead of single currentIndex()
+   - Sorts row indices in reverse order to safely remove multiple items
+   - Removes from highest index to lowest to preserve indices
+   - Logs each removed channel individually
+
+### Key Features:
+- Output channel list now supports multi-selection (Ctrl+Click, Shift+Click)
+- Remove button deletes all selected channels in one action
+- Removal order is deterministic (highest index first)
+- Each removal is logged separately
+- Warning message if no channels selected
+
+### Testing Results:
+- Syntax check passed ✓
+
+### Status: COMPLETE
+Output channel list now supports multi-select removal.
