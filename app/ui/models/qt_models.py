@@ -1,5 +1,5 @@
 """
-Qt models for EXR Channel Recombiner UI.
+Qt models for EXR Toolkit UI.
 
 Implements MVC pattern for:
 - Sequence list

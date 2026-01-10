@@ -1,5 +1,5 @@
 """
-Settings management for EXR Channel Recombiner.
+Settings management for EXR Toolkit.
 
 Handles persistent storage of user preferences in settings.ini.
 """

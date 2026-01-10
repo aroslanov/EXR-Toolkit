@@ -1,5 +1,5 @@
 """
-Core data types for EXR Channel Recombiner.
+Core data types for EXR Toolkit.
 
 All types use @dataclass and Enum for structured, immutable representations.
 No loose dicts at the internal API boundary.

@@ -60,7 +60,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("EXR Channel Recombiner")
+        self.setWindowTitle("EXR Toolkit")
         self.setGeometry(100, 100, 1600, 950)
 
         # Settings

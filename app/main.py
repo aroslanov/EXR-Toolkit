@@ -1,5 +1,5 @@
 """
-EXR Channel Recombiner — Main Entry Point
+EXR Toolkit — Main Entry Point
 
 Run this to start the GUI application.
 """

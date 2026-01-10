@@ -1,4 +1,4 @@
-# EXR Channel Recombiner
+# EXR Toolkit
 
 A desktop GUI application for advanced EXR image sequence manipulation, enabling users to load multiple sequences, inspect all channels and metadata, and recombine them into new EXR outputs with full control over attributes and export settings.
 

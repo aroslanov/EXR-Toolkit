@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-EXR Channel Recombiner — Root-level launcher
+EXR Toolkit — Root-level launcher
 """
 
 import sys
