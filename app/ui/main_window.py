@@ -280,6 +280,7 @@ class MainWindow(QMainWindow):
             id=seq_id,
             display_name=f"Seq: {Path(path).name} ({len(frames_validated)} frames)",
             pattern=pattern,
+            source_dir=Path(path),
             frames=frames_validated,
             static_probe=probe,
         )

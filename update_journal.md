@@ -578,3 +578,47 @@ Valid formats (from OpenImageIO test suite):
 - Button state is fully managed and restored after export
 - User sees immediate visual feedback (red STOP button)
 
+
+## Session 12 — 2026-01-09
+
+### Bug Report
+- Export started but returned empty EXR files
+- Source files not found during export
+- Pattern: 'Warning: Source file not found: render.00000.exr'
+- Root cause: File paths missing source directory information
+
+### Root Cause Analysis
+- SequenceSpec did not store source_dir (directory containing source sequence files)
+- export_runner._assemble_frame() only used pattern.format(frame_num) - just the filename
+- Missing full path: src_seq.source_dir / filename
+- Result: OpenImageIO looked in current directory instead of source directory
+
+### Fix
+
+#### 1. app/core/types.py - SequenceSpec
+- Added source_dir: Path field to store source directory
+- Positioned after pattern field (required parameter)
+
+#### 2. app/ui/main_window.py - MainWindow._on_load_sequence()
+- Pass source_dir=Path(path) when creating SequenceSpec
+- path is already the directory selected by user, so just wrap in Path()
+
+#### 3. app/services/export_runner.py - ExportRunner._assemble_frame()
+- Changed from: frame_path = str(Path(src_seq.pattern.format(frame_num)))
+- Changed to: 
+  - filename = src_seq.pattern.format(frame_num)
+  - frame_path = src_seq.source_dir / filename
+- Now builds full path from source_dir + filename
+- Correctly checks if full path exists
+
+### Verification
+- Ran: .\\.venv\\Scripts\\python -m py_compile app/core/types.py app/ui/main_window.py app/services/export_runner.py
+- Result: Compilation OK
+- Ran: .\\.venv\\Scripts\\python -c \"from app.ui.main_window import MainWindow; from app.core.types import SequenceSpec; print('Imports OK')\"
+- Result: Imports OK
+
+### Expected Result
+- Export will now correctly find source files in their original directory
+- File paths will be complete: D:\source_dir\render.00000.exr
+- Instead of just: render.00000.exr
+

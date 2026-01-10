@@ -177,16 +177,17 @@ class ExportRunner(QRunnable):
             if not src_seq:
                 continue
 
-            # Get frame path
-            frame_path = str(Path(src_seq.pattern.format(frame_num)))
-            if not Path(frame_path).exists():
+            # Get full frame path (source_dir + formatted filename)
+            filename = src_seq.pattern.format(frame_num)
+            frame_path = src_seq.source_dir / filename
+            if not frame_path.exists():
                 self._log(f"Warning: Source file not found: {frame_path}")
                 continue
 
             # Read source channel
             try:
                 src_data = self._read_channel_from_file(
-                    frame_path,
+                    str(frame_path),
                     out_ch.source.channel_name,
                     out_ch.source.subimage_index,
                 )

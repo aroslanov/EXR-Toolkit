@@ -163,6 +163,7 @@ class SequenceSpec:
     id: str
     display_name: str
     pattern: SequencePathPattern
+    source_dir: Path  # Directory containing the source sequence files
     frames: list[int] = field(default_factory=list)
     static_probe: Optional[FileProbe] = None
     per_frame_probes: dict[int, FileProbe] = field(default_factory=dict)
