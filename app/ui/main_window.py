@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QListView,
     QTableView,
     QComboBox,
+    QSpinBox,
     QProgressDialog,
     QMessageBox,
 )
@@ -74,6 +75,9 @@ class MainWindow(QMainWindow):
         self.ch_list_model = ChannelListModel()
         self.out_ch_list_model = OutputChannelListModel()
         self.attr_table_model = AttributeTableModel()
+
+        # Track longest sequence for frame range limits
+        self.max_frame_count = 0
 
         # Build UI
         self._build_ui()
@@ -226,6 +230,31 @@ class MainWindow(QMainWindow):
         self.filename_pattern_edit.textChanged.connect(self._on_filename_pattern_changed)
         layout.addWidget(self.filename_pattern_edit)
 
+        # Frame range selector
+        layout.addWidget(QLabel("Processing Frame Range:"))
+        range_layout = QHBoxLayout()
+        
+        range_layout.addWidget(QLabel("In Frame:"))
+        self.in_frame_spinbox = QSpinBox()
+        self.in_frame_spinbox.setMinimum(0)
+        self.in_frame_spinbox.setMaximum(0)
+        self.in_frame_spinbox.setValue(0)
+        self.in_frame_spinbox.valueChanged.connect(self._on_in_frame_changed)
+        range_layout.addWidget(self.in_frame_spinbox)
+        
+        range_layout.addWidget(QLabel("Out Frame:"))
+        self.out_frame_spinbox = QSpinBox()
+        self.out_frame_spinbox.setMinimum(0)
+        self.out_frame_spinbox.setMaximum(0)
+        self.out_frame_spinbox.setValue(0)
+        self.out_frame_spinbox.valueChanged.connect(self._on_out_frame_changed)
+        range_layout.addWidget(self.out_frame_spinbox)
+        
+        self.max_frame_label = QLabel("(Max: 0 frames)")
+        range_layout.addWidget(self.max_frame_label)
+        range_layout.addStretch()
+        layout.addLayout(range_layout)
+
         # Progress bar
         layout.addWidget(QLabel("Progress:"))
         self.progress_bar = QTextEdit()
@@ -360,6 +389,8 @@ class MainWindow(QMainWindow):
                 f"[OK] Loaded sequence: {len(frames_validated)} frames, "
                 f"{num_channels} channels, {num_attributes} attributes"
             )
+            # Update max frame count
+            self._update_max_frame_count()
             QApplication.processEvents()
         finally:
             loading_dialog.close()
@@ -375,6 +406,7 @@ class MainWindow(QMainWindow):
             self.state.remove_sequence(seq.id)
             self.seq_list_model.remove_at(current.row())
             self.ch_list_model.set_channels([])
+            self._update_max_frame_count()
             self._append_log(f"[OK] Removed sequence: {seq.display_name}")
 
     def _on_sequence_selected(self, index) -> None:
@@ -389,6 +421,9 @@ class MainWindow(QMainWindow):
             if seq.static_probe.main_subimage.attributes and seq.static_probe.main_subimage.attributes.attributes:
                 attributes = seq.static_probe.main_subimage.attributes.attributes
             self.attr_table_model.set_attributes(attributes)
+            
+            # Update max frame count from longest sequence
+            self._update_max_frame_count()
             
             self._append_log(f"[OK] Selected sequence: {seq.display_name} ({len(channels)} channels, {len(attributes)} attributes)")
 
@@ -531,6 +566,59 @@ class MainWindow(QMainWindow):
             "Process Available": FrameRangePolicy.PROCESS_AVAILABLE,
         }
         return policy_map.get(policy_text, FrameRangePolicy.STOP_AT_SHORTEST)
+
+    # ========== Frame Range Management ==========
+
+    def _update_max_frame_count(self) -> None:
+        """Update max frame count from all loaded sequences."""
+        self.max_frame_count = 0
+        for seq in self.state.sequences.values():
+            if seq.frames:
+                frame_count = len(seq.frames)
+                if frame_count > self.max_frame_count:
+                    self.max_frame_count = frame_count
+
+        # Update spinbox limits
+        max_val = max(0, self.max_frame_count - 1)
+        self.in_frame_spinbox.setMaximum(max_val)
+        self.out_frame_spinbox.setMaximum(max_val)
+        
+        # Reset values if no sequences
+        if self.max_frame_count == 0:
+            self.in_frame_spinbox.setValue(0)
+            self.out_frame_spinbox.setValue(0)
+        else:
+            # Set out_frame to max if it's beyond new limit
+            if self.out_frame_spinbox.value() > max_val:
+                self.out_frame_spinbox.setValue(max_val)
+        
+        self.max_frame_label.setText(f"(Max: {self.max_frame_count} frames)")
+        self._append_log(f"[OK] Updated frame range limits: max {self.max_frame_count} frames")
+
+    def _on_in_frame_changed(self, value: int) -> None:
+        """Handle in frame spinbox change."""
+        # Ensure in_frame <= out_frame
+        if value > self.out_frame_spinbox.value():
+            self.out_frame_spinbox.setValue(value)
+        
+        self._update_export_frame_range()
+
+    def _on_out_frame_changed(self, value: int) -> None:
+        """Handle out frame spinbox change."""
+        # Ensure out_frame >= in_frame
+        if value < self.in_frame_spinbox.value():
+            self.in_frame_spinbox.setValue(value)
+        
+        self._update_export_frame_range()
+
+    def _update_export_frame_range(self) -> None:
+        """Update export spec with current frame range."""
+        in_frame = self.in_frame_spinbox.value()
+        out_frame = self.out_frame_spinbox.value()
+        
+        if self.max_frame_count > 0:
+            self.state.export_spec.frame_range = (in_frame, out_frame)
+            self._append_log(f"[OK] Frame range set: {in_frame} to {out_frame}")
 
     # ========== Export ==========
 

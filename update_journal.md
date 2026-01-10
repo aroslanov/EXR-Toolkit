@@ -218,3 +218,62 @@ Both improvements have been successfully implemented and tested.
 
 ### Status: COMPLETE
 Layout has been fixed to distribute space equally across sections.
+
+## 2026-01-09 - Frame Range Selector Feature
+
+### Task: Add frame range selector
+- Users can select processing in/out range (in frames)
+- Range selector placed between output filename and compression options
+- Range limited to the longest loaded sequence
+- Updated every time a new sequence is loaded
+
+### Changes Implemented:
+
+1. **app/ui/main_window.py - Imports**
+   - Added QSpinBox import to PySide6.QtWidgets
+
+2. **app/ui/main_window.py - MainWindow.__init__()**
+   - Added self.max_frame_count = 0 to track longest sequence
+
+3. **app/ui/main_window.py - _create_export_panel()**
+   - Added new "Processing Frame Range" section after filename pattern
+   - Added in_frame_spinbox (QSpinBox) for input frame number
+   - Added out_frame_spinbox (QSpinBox) for output frame number
+   - Added max_frame_label showing current max frame count
+   - Both spinboxes connected to handlers
+
+4. **app/ui/main_window.py - Frame Range Management Methods**
+   - Added _update_max_frame_count(): Calculates longest sequence, updates spinbox limits
+   - Added _on_in_frame_changed(): Ensures in_frame <= out_frame, updates export spec
+   - Added _on_out_frame_changed(): Ensures out_frame >= in_frame, updates export spec
+   - Added _update_export_frame_range(): Sets export_spec.frame_range tuple
+
+5. **app/ui/main_window.py - Sequence Management Updates**
+   - Updated _on_load_sequence(): Calls _update_max_frame_count() after loading
+   - Updated _on_remove_sequence(): Calls _update_max_frame_count() after removal
+   - Updated _on_sequence_selected(): Calls _update_max_frame_count() when sequence selected
+
+### Key Features:
+- Frame range spinboxes initialized to 0-0 with max 0 frames
+- When sequences loaded, spinboxes update with correct limits based on longest sequence
+- In frame spinbox minimum = 0, maximum = (max_frames - 1)
+- Out frame spinbox minimum = 0, maximum = (max_frames - 1)
+- Validation: in_frame cannot exceed out_frame (auto-adjusts if needed)
+- Validation: out_frame cannot be less than in_frame (auto-adjusts if needed)
+- Max frame count displays in label, e.g., "(Max: 240 frames)"
+- Range persists in state.export_spec.frame_range as tuple (in, out)
+- Log messages track frame range changes
+
+### Technical Details:
+- Uses ExportSpec.frame_range field (already defined as Optional[tuple[int, int]])
+- Spinbox values are 0-based indices into frame list
+- Max spinbox value = max_frame_count - 1 (0-based indexing)
+- All methods include error checking for empty sequences
+
+### Testing Results:
+- Python compile check passed ✓
+- All new attributes present: in_frame_spinbox, out_frame_spinbox, max_frame_label, max_frame_count ✓
+- Methods exist: _update_max_frame_count, _on_in_frame_changed, _on_out_frame_changed, _update_export_frame_range ✓
+
+### Status: COMPLETE
+Frame range selector feature has been successfully implemented and syntax verified.
