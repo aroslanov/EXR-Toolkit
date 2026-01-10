@@ -42,6 +42,11 @@ class ExportRunner(QRunnable):
         self.export_spec = export_spec
         self.sequences = sequences
         self.signals = ExportSignals()
+        self.stop_requested = False  # Flag to stop export
+
+    def request_stop(self) -> None:
+        """Request the export to stop gracefully."""
+        self.stop_requested = True
 
     def run(self) -> None:
         """Execute the export."""
@@ -74,6 +79,12 @@ class ExportRunner(QRunnable):
 
             # Export frames
             for i, frame_num in enumerate(frame_list):
+                # Check if stop was requested
+                if self.stop_requested:
+                    self._log("Export cancelled by user")
+                    self.signals.finished.emit(False, "Export cancelled by user")
+                    return
+
                 try:
                     self._export_frame(frame_num)
                     progress = int((i + 1) / len(frame_list) * 100)
@@ -312,6 +323,11 @@ class ExportManager(QObject):
         self.current_runner.signals.progress.connect(self.progress.emit)
 
         self.thread_pool.start(self.current_runner)
+
+    def stop_export(self) -> None:
+        """Request the current export to stop."""
+        if self.current_runner:
+            self.current_runner.request_stop()
 
     def _on_finished(self, success: bool, message: str) -> None:
         """Handle export completion."""

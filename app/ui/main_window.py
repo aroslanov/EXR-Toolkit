@@ -208,12 +208,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.progress_bar)
 
         # Export button
-        btn_export = QPushButton("EXPORT")
-        btn_export.setStyleSheet(
+        self.btn_export = QPushButton("EXPORT")
+        self.btn_export.setStyleSheet(
             "background-color: #4CAF50; color: white; font-weight: bold; font-size: 14px;"
         )
-        btn_export.clicked.connect(self._on_export)
-        layout.addWidget(btn_export)
+        self.btn_export.clicked.connect(self._on_export_button_clicked)
+        layout.addWidget(self.btn_export)
 
         # Log
         layout.addWidget(QLabel("Log:"))
@@ -452,6 +452,15 @@ class MainWindow(QMainWindow):
 
     # ========== Export ==========
 
+    def _on_export_button_clicked(self) -> None:
+        """Handle export button click (toggles between EXPORT and STOP)."""
+        if self.btn_export.text() == "EXPORT":
+            self._on_export()
+        else:  # STOP mode
+            self.export_manager.stop_export()
+            self.btn_export.setEnabled(False)
+            self._append_log("[USER] Export stop requested...")
+
     def _on_export(self) -> None:
         """Handle 'EXPORT' button."""
         # Update state from UI
@@ -483,6 +492,13 @@ class MainWindow(QMainWindow):
 
         # Start export
         self._append_log("\n[EXPORT] Starting export...")
+        
+        # Change button to STOP mode
+        self.btn_export.setText("STOP")
+        self.btn_export.setStyleSheet(
+            "background-color: #f44336; color: white; font-weight: bold; font-size: 14px;"
+        )
+        
         self.export_manager.start_export(export_spec, self.state.sequences)
 
     def _on_export_progress(self, percent: int, message: str) -> None:
@@ -500,6 +516,13 @@ class MainWindow(QMainWindow):
         else:
             self._append_log(f"\n[FAILED] {message}")
         self.progress_bar.setText("")
+        # Reset button to EXPORT mode
+        self.btn_export.setText("EXPORT")
+        self.btn_export.setStyleSheet(
+            "background-color: #4CAF50; color: white; font-weight: bold; font-size: 14px;"
+        )
+        self.btn_export.clicked.disconnect()
+        self.btn_export.clicked.connect(self._on_export_button_clicked)
 
     # ========== Utilities ==========
 

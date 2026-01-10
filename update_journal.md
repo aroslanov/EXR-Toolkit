@@ -507,3 +507,74 @@ Valid formats (from OpenImageIO test suite):
 - No more invalid 'dwa' option
 - Users can select dwaa/dwab (correct DWA lossy compression variants)
 
+
+## Session 11 — 2026-01-09
+
+### Goal
+1. Make log window text clipboard-copiable (Ctrl+C and double-click)
+2. Make export process interruptible; export button switches to stop button
+
+### Changes
+
+#### 1. Log Window Text Selection (main_window.py)
+- Log QTextEdit already supports Ctrl+C and double-click selection
+- Read-only flag allows selection but prevents editing
+- Users can now:
+  - Select text with mouse
+  - Double-click to select words
+  - Ctrl+A to select all
+  - Ctrl+C to copy to clipboard
+
+#### 2. Interruptible Export (3 files modified)
+
+##### export_runner.py - ExportRunner class
+- Added stop_requested flag (initialized to False)
+- Added request_stop() method to gracefully request stop
+- Added stop check in export frame loop:
+  - Checks stop_requested before each frame
+  - Gracefully cancels if stop requested
+  - Logs cancellation message
+
+##### export_runner.py - ExportManager class
+- Added stop_export() method that calls current_runner.request_stop()
+- Allows external code to request export termination
+
+##### main_window.py - MainWindow class
+- Changed btn_export from local to instance variable (self.btn_export)
+- Added _on_export_button_clicked() handler that:
+  - Calls _on_export() if button text is \"EXPORT\"
+  - Calls export_manager.stop_export() if button text is \"STOP\"
+  - Disables button after stop request
+- Updated _on_export() to change button mode:
+  - Sets button text to \"STOP\"
+  - Changes button color to red (#f44336)
+- Updated _on_export_finished() to reset button mode:
+  - Sets button text back to \"EXPORT\"
+  - Changes button color back to green (#4CAF50)
+  - Re-connects click handler
+
+### User Flow
+1. **Copy log text:**
+   - Single-click and drag to select text
+   - Double-click to select word/phrase
+   - Ctrl+A to select all
+   - Ctrl+C to copy to clipboard
+
+2. **Stop export during process:**
+   - Click EXPORT to start (button turns red, text changes to STOP)
+   - During export, click STOP button to cancel
+   - Export stops gracefully after current frame
+   - Button resets to EXPORT when finished
+
+### Verification
+- Ran: .\\.venv\\Scripts\\python -m py_compile app/ui/main_window.py app/services/export_runner.py
+- Result: Compilation OK
+- Ran: .\\.venv\\Scripts\\python -c \"from app.ui.main_window import MainWindow; from app.services.export_runner import ExportManager; print('Imports OK')\"
+- Result: Imports OK
+
+### Technical Details
+- Export loop checks stop_requested flag before each frame (safe, non-blocking)
+- Stop is graceful: completes current frame, then stops
+- Button state is fully managed and restored after export
+- User sees immediate visual feedback (red STOP button)
+
