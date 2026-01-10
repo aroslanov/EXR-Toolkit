@@ -259,8 +259,6 @@ exr_compression = dwab
 frame_policy = STOP_AT_SHORTEST
 ```
 
-You can manually edit this file to change defaults.
-
 ## Advanced Topics
 
 ### Frame Policy Details
@@ -291,70 +289,15 @@ While the GUI is interactive, you can prepare export configurations:
 
 For fully automated batch processing, future versions may support scripted export via a Python API.
 
-## Development
-
-### Code Style
-
-- Python 3.12 type hints throughout
-- Dataclasses for immutable types
-- Enum for fixed choices
-- Clear separation of concerns (core, oiio, services, ui)
-
-### Key Design Principles
-
-1. **Type Safety**: All internal APIs use structured types, not loose dicts
-2. **Metadata Preservation**: Never silent data loss; explicit user control
-3. **Validation Gates**: Validation blocks export until all critical issues resolve
-4. **Modularity**: Components are loosely coupled and testable
-5. **Non-Intrusive**: No manipulation of OIIO behavior; uses standard OIIO APIs
-
-### Adding Features
-
-When extending the application:
-1. Follow the modular structure (core → services → ui)
-2. Update validation rules if introducing new constraints
-3. Persist new settings to `settings.ini` via the `Settings` class
-4. Log all user-visible actions to the log pane
-
 ## Known Limitations
 
 - **Single-Part EXR**: Multi-part/multi-subimage EXR files are supported for reading but output is always single-part
-- **Resolution Matching**: All sequences must have matching resolution (no resampling)
+- **Resolution Matching**: All sequences must have matching resolution (no resampling yet)
 - **Interactive Only**: GUI is interactive; no command-line API yet
-- **Per-Frame Metadata**: Metadata is probed from the first frame; per-frame variations are not detected
-
-## Future Enhancements
-
-Potential additions for future versions:
-- Channel math (multiply, add, mix)
-- Per-channel bit-depth conversion
-- OCIO color space management
-- Automated batch processing via Python API
-- Multi-part EXR output support
-- Drag-and-drop channel mapping
-- Channel presets (RGB, AOV sets, etc.)
 
 ## License
 
-[Add appropriate license information here]
-
-## Contributing
-
-[Add contribution guidelines here]
-
-## Support
-
-For issues, questions, or feature requests, please refer to:
-- `implementation.md` for technical details
-- `update_journal.md` for development history and known issues
-- Application log output for diagnostic information
-
-## Credits
-
-Built with:
-- [PySide6](https://wiki.qt.io/Qt_for_Python) — Qt 6 Python bindings
-- [OpenImageIO](https://github.com/AcademySoftwareFoundation/OpenImageIO) — Image I/O library
-- [NumPy](https://numpy.org/) — Numerical computing
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).
 
 ---
 
