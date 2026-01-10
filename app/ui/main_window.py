@@ -165,7 +165,7 @@ class MainWindow(QMainWindow):
         
         options_layout.addWidget(QLabel("Compression:"))
         self.compression_combo = QComboBox()
-        self.compression_combo.addItems(["zip", "rle", "piz", "dwa", "dwab", "none"])
+        self.compression_combo.addItems(["none", "rle", "zip", "zips", "piz", "pxr24", "b44", "b44a", "dwaa", "dwab"])
         self.compression_combo.currentTextChanged.connect(self._on_compression_changed)
         options_layout.addWidget(self.compression_combo)
         

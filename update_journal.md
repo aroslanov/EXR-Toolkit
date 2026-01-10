@@ -462,3 +462,48 @@ Attributes:
    - Click \"Import from Source\" button in Attributes tab
    - Attributes from source sequence automatically populate the table
 
+
+## Session 10 — 2026-01-09
+
+### Goal
+- Correct EXR compression formats (fix typo: DWA → DWAA/DWAB)
+- Use ONLY OpenImageIO-supported compression formats
+
+### Root Cause
+- Session 9 included 'dwa' which is not a valid EXR format
+- Correct formats are 'dwaa' and 'dwab' (not 'dwa')
+
+### Research
+- Used context7 MCP to fetch OpenImageIO documentation
+- Found definitive list from openexr-compression test reference
+
+### OpenImageIO Supported EXR Compression Formats
+Valid formats (from OpenImageIO test suite):
+- none (no compression)
+- rle (Run-Length Encoding)
+- zip (ZIP compression)
+- zips (ZIP single scanline)
+- piz (PIZ lossless)
+- pxr24 (PXR24)
+- b44 (B44 lossy, fixed rate)
+- b44a (B44 with alpha)
+- dwaa (DWA lossy, adaptive, quality 200)
+- dwab (DWA lossy, adaptive, best compression)
+- htj2k (JPEG 2000 Huffman, requires OpenEXR 3.4+)
+
+### Change
+- Updated compression_combo items from: [\"zip\", \"rle\", \"piz\", \"dwa\", \"dwab\", \"none\"]
+- To: [\"none\", \"rle\", \"zip\", \"zips\", \"piz\", \"pxr24\", \"b44\", \"b44a\", \"dwaa\", \"dwab\"]
+- Ordered by common usage (none → more specialized/lossy formats)
+- Includes all standard formats supported across OpenEXR versions
+- Excluded htj2k (requires OpenEXR 3.4+, may not be available)
+
+### Verification
+- Ran: .\\.venv\\Scripts\\python -m py_compile app/ui/main_window.py
+- Result: Compilation OK
+
+### User Impact
+- Compression combo now shows only valid, OpenImageIO-supported formats
+- No more invalid 'dwa' option
+- Users can select dwaa/dwab (correct DWA lossy compression variants)
+
