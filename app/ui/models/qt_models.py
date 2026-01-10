@@ -208,7 +208,7 @@ class AttributeListModel(QAbstractListModel):
         attr = self.attributes[index.row()]
 
         if role == Qt.ItemDataRole.DisplayRole:
-            return f"{attr.name} ({attr.oiio_type})"
+            return f"{attr.name}: {attr.value}"
 
         if role == Qt.ItemDataRole.UserRole:
             return attr

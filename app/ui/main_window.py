@@ -34,6 +34,7 @@ from ..core import (
     ChannelSourceRef,
     ValidationEngine,
     ValidationSeverity,
+    FrameRangePolicy,
 )
 from ..oiio import OiioAdapter
 from ..core.sequence import SequenceDiscovery
@@ -180,6 +181,12 @@ class MainWindow(QMainWindow):
         self.compression_combo.currentTextChanged.connect(self._on_compression_changed)
         options_layout.addWidget(self.compression_combo)
         
+        options_layout.addWidget(QLabel("Frame Policy:"))
+        self.frame_policy_combo = QComboBox()
+        self.frame_policy_combo.addItems(["Stop at Shortest", "Hold Last Frame", "Process Available"])
+        self.frame_policy_combo.currentTextChanged.connect(self._on_frame_policy_changed)
+        options_layout.addWidget(self.frame_policy_combo)
+        
         options_layout.addStretch()
         tabs.addTab(options_widget, "Options")
 
@@ -245,7 +252,8 @@ class MainWindow(QMainWindow):
 
     def _on_load_sequence(self) -> None:
         """Handle 'Load Sequence' button."""
-        path = QFileDialog.getExistingDirectory(self, "Select Sequence Directory")
+        initial_dir = self.settings.get_input_dir() or ""
+        path = QFileDialog.getExistingDirectory(self, "Select Sequence Directory", initial_dir)
         if not path:
             return
 
@@ -433,6 +441,17 @@ class MainWindow(QMainWindow):
         """Handle compression selection."""
         self.state.set_compression(compression)
         self.settings.set_compression(compression)  # Save to settings
+
+    def _on_frame_policy_changed(self, policy_text: str) -> None:
+        """Handle frame policy selection."""
+        # Map display text to enum
+        policy_map = {
+            "Stop at Shortest": FrameRangePolicy.STOP_AT_SHORTEST,
+            "Hold Last Frame": FrameRangePolicy.HOLD_LAST,
+            "Process Available": FrameRangePolicy.PROCESS_AVAILABLE,
+        }
+        policy = policy_map.get(policy_text, FrameRangePolicy.STOP_AT_SHORTEST)
+        self.state.export_spec.frame_policy = policy
 
     # ========== Export ==========
 

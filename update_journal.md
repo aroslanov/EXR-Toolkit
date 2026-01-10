@@ -70,3 +70,39 @@
 
 ### Status: COMPLETE
 All requested changes have been successfully implemented and tested.
+
+## 2026-01-09 - Additional Improvements
+
+### Task: Three improvements requested
+1. Source file attributes list should display values too (like "name: value")
+2. Load sequence dialog should use settings.ini last_input_dir
+3. Frame policy must be user controllable in options
+
+### Changes Implemented:
+
+1. **app/ui/models/qt_models.py - AttributeListModel.data()**
+   - Changed display format from `"name (type)"` to `"name: value"`
+   - Now shows both name and value for each attribute
+
+2. **app/ui/main_window.py - _on_load_sequence()**
+   - Added initial_dir parameter to QFileDialog.getExistingDirectory()
+   - Uses self.settings.get_input_dir() to restore last used directory
+   - Falls back to empty string if no previous directory saved
+
+3. **app/ui/main_window.py - Frame Policy Control**
+   - Imported FrameRangePolicy enum from core
+   - Added frame_policy_combo (QComboBox) to Options tab
+   - Added three options: "Stop at Shortest", "Hold Last Frame", "Process Available"
+   - Added _on_frame_policy_changed() handler method
+   - Maps display text to FrameRangePolicy enum values
+   - Updates state.export_spec.frame_policy when user selects option
+
+### Testing Results
+- AttributeListModel displays format: "aperture: 2.8", "PixelAspectRatio: 1.0" ✓
+- Settings reads last_input_dir correctly from settings.ini ✓
+- Frame policy mapping works: Stop at Shortest -> STOP_AT_SHORTEST, etc. ✓
+- MainWindow creates successfully with new frame_policy_combo ✓
+- _on_frame_policy_changed handler method exists and callable ✓
+
+### Status: COMPLETE
+All three improvements have been successfully implemented and tested.
