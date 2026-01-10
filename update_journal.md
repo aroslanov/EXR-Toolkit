@@ -188,3 +188,33 @@ All four improvements have been successfully implemented and tested.
 
 ### Status: COMPLETE
 Both improvements have been successfully implemented and tested.
+
+## 2026-01-09 - Layout Refinements
+
+### Task: Fix interface layout
+- Column 1: All three lists (Sequences, Channels, Source Attributes) should be equal size
+- Column 2: Output Channels list and tabs should be equal size
+- Column 3: No changes needed
+
+### Changes Implemented:
+
+1. **app/ui/main_window.py - _create_input_panel()**
+   - Removed final `layout.addStretch()` that was consuming space
+   - Added stretch factor 1 to sequence_list widget
+   - Added stretch factor 1 to channel_list widget
+   - Added stretch factor 1 to source_attribute_table widget
+   - Buttons remain without stretch (fixed height)
+   - Result: All three list sections share equal space in column 1
+
+2. **app/ui/main_window.py - _create_output_panel()**
+   - Added stretch factor 1 to output_list widget
+   - Maintained stretch factor 1 on tabs widget (was already there)
+   - Result: Output list and tabs share equal space in column 2
+
+### Testing Results
+- MainWindow creates successfully with new layout ✓
+- Window displays without errors ✓
+- Layout properly distributes space across equal-height sections ✓
+
+### Status: COMPLETE
+Layout has been fixed to distribute space equally across sections.

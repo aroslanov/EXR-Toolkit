@@ -105,12 +105,12 @@ class MainWindow(QMainWindow):
         panel = QWidget()
         layout = QVBoxLayout(panel)
 
+        # Input Sequences section
         layout.addWidget(QLabel("Input Sequences"))
-
         self.sequence_list = QListView()
         self.sequence_list.setModel(self.seq_list_model)
         self.sequence_list.clicked.connect(self._on_sequence_selected)
-        layout.addWidget(self.sequence_list)
+        layout.addWidget(self.sequence_list, 1)  # Stretch factor 1
 
         btn_layout = QHBoxLayout()
         btn_add = QPushButton("Load Sequence")
@@ -121,16 +121,18 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(btn_remove)
         layout.addLayout(btn_layout)
 
+        # Channels section
         layout.addWidget(QLabel("Channels in Selected Sequence"))
         self.channel_list = QListView()
         self.channel_list.setModel(self.ch_list_model)
         self.channel_list.setSelectionMode(QListView.SelectionMode.MultiSelection)
-        layout.addWidget(self.channel_list)
+        layout.addWidget(self.channel_list, 1)  # Stretch factor 1
 
         btn_add_to_output = QPushButton("Add Selected to Output")
         btn_add_to_output.clicked.connect(self._on_add_channel_to_output)
         layout.addWidget(btn_add_to_output)
 
+        # Source Attributes section
         layout.addWidget(QLabel("Source Attributes"))
         self.source_attribute_table = QTableView()
         self.source_attribute_table.setModel(self.attr_table_model)
@@ -139,13 +141,12 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QAbstractItemView
         self.source_attribute_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.source_attribute_table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-        layout.addWidget(self.source_attribute_table)
+        layout.addWidget(self.source_attribute_table, 1)  # Stretch factor 1
 
         btn_add_attrs = QPushButton("Add Selected to Output Attributes")
         btn_add_attrs.clicked.connect(self._on_add_attributes_to_output)
         layout.addWidget(btn_add_attrs)
 
-        layout.addStretch()
         return panel
 
     def _create_output_panel(self) -> QWidget:
@@ -157,7 +158,7 @@ class MainWindow(QMainWindow):
 
         self.output_list = QListView()
         self.output_list.setModel(self.out_ch_list_model)
-        layout.addWidget(self.output_list)
+        layout.addWidget(self.output_list, 1)  # Stretch factor 1
 
         btn_layout = QHBoxLayout()
         btn_remove = QPushButton("Remove")
@@ -195,7 +196,7 @@ class MainWindow(QMainWindow):
         options_layout.addStretch()
         tabs.addTab(options_widget, "Options")
 
-        layout.addWidget(tabs, 1)
+        layout.addWidget(tabs, 1)  # Stretch factor 1
 
         return panel
 
