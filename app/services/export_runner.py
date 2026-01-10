@@ -266,7 +266,12 @@ class ExportRunner(QRunnable):
         # Apply export attributes
         for attr in self.export_spec.output_attributes.attributes:
             try:
-                out_spec.attribute(attr.name, attr.value)
+                # Handle array/tuple attributes by converting to string
+                value = attr.value
+                if isinstance(value, (tuple, list)):
+                    # Convert tuple/list to space-separated string
+                    value = " ".join(str(v) for v in value)
+                out_spec.attribute(attr.name, value)
             except Exception as e:
                 self._log(f"Warning: Could not set attribute '{attr.name}': {e}")
 
