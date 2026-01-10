@@ -622,3 +622,43 @@ Valid formats (from OpenImageIO test suite):
 - File paths will be complete: D:\source_dir\render.00000.exr
 - Instead of just: render.00000.exr
 
+
+## Session 13 — 2026-01-09
+
+### Bug Report
+- After user clicks STOP to halt export, clicking EXPORT button again does nothing
+- User can change compression settings, but export button remains unresponsive
+
+### Root Cause Analysis
+1. **Button disabled during stop (line 462):** When user clicks STOP, button is disabled with setEnabled(False)
+2. **Button not re-enabled (line 527):** _on_export_finished() never calls setEnabled(True)
+3. **Signal reconnect issue (line 526):** Used disconnect() which removes ALL connections (dangerous pattern)
+   - If multiple connections existed, this could break the handler
+   - After reconnect, button state wasn't clearly defined
+
+### Fix - main_window.py
+
+#### _on_export_finished() changes
+- **Removed:** self.btn_export.clicked.disconnect()
+- **Removed:** self.btn_export.clicked.connect(self._on_export_button_clicked)
+- **Added:** self.btn_export.setEnabled(True)
+- **Result:** Button state is checked at click time (by handler), not reconnection
+
+#### Why this works
+- _on_export_button_clicked() already checks button text: if text == \"EXPORT\"
+- No need for signal reconnection; handler logic is state-based
+- Just ensure button is enabled and properly reset to \"EXPORT\" text
+
+### Verification
+- Ran: .\\.venv\\Scripts\\python -m py_compile app/ui/main_window.py
+- Result: Compilation OK
+- Ran: .\\.venv\\Scripts\\python -c \"from app.ui.main_window import MainWindow; print('Imports OK')\"
+- Result: Imports OK
+
+### User Flow (Fixed)
+1. Click EXPORT → button turns red (STOP), export runs
+2. Click STOP → button disabled, export halts gracefully
+3. Export finishes → button re-enabled, text reset to green (EXPORT)
+4. Click EXPORT → button turns red (STOP), export runs again (NOW WORKS!)
+5. Can change compression settings between exports
+

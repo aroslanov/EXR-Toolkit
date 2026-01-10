@@ -522,8 +522,7 @@ class MainWindow(QMainWindow):
         self.btn_export.setStyleSheet(
             "background-color: #4CAF50; color: white; font-weight: bold; font-size: 14px;"
         )
-        self.btn_export.clicked.disconnect()
-        self.btn_export.clicked.connect(self._on_export_button_clicked)
+        self.btn_export.setEnabled(True)
 
     # ========== Utilities ==========
 
