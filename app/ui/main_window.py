@@ -238,7 +238,7 @@ class MainWindow(QMainWindow):
         range_layout.addWidget(QLabel("In Frame:"))
         self.in_frame_spinbox = QSpinBox()
         self.in_frame_spinbox.setMinimum(0)
-        self.in_frame_spinbox.setMaximum(0)
+        self.in_frame_spinbox.setMaximum(999999)
         self.in_frame_spinbox.setValue(0)
         self.in_frame_spinbox.valueChanged.connect(self._on_in_frame_changed)
         range_layout.addWidget(self.in_frame_spinbox)
@@ -246,7 +246,7 @@ class MainWindow(QMainWindow):
         range_layout.addWidget(QLabel("Out Frame:"))
         self.out_frame_spinbox = QSpinBox()
         self.out_frame_spinbox.setMinimum(0)
-        self.out_frame_spinbox.setMaximum(0)
+        self.out_frame_spinbox.setMaximum(999999)
         self.out_frame_spinbox.setValue(0)
         self.out_frame_spinbox.valueChanged.connect(self._on_out_frame_changed)
         range_layout.addWidget(self.out_frame_spinbox)
@@ -586,8 +586,10 @@ class MainWindow(QMainWindow):
                 if frame_count > self.max_frame_count:
                     self.max_frame_count = frame_count
 
-        # Update spinbox limits
+        # Update spinbox limits and values
         max_val = max(0, self.max_frame_count - 1)
+        
+        # Set spinbox maximum limits based on longest sequence
         self.in_frame_spinbox.setMaximum(max_val)
         self.out_frame_spinbox.setMaximum(max_val)
         
@@ -595,13 +597,15 @@ class MainWindow(QMainWindow):
         if self.max_frame_count == 0:
             self.in_frame_spinbox.setValue(0)
             self.out_frame_spinbox.setValue(0)
+            self.state.export_spec.frame_range = None
         else:
-            # Set out_frame to max if it's beyond new limit
-            if self.out_frame_spinbox.value() > max_val:
-                self.out_frame_spinbox.setValue(max_val)
+            # Initialize frame range to full sequence range [0, max_val]
+            self.in_frame_spinbox.setValue(0)
+            self.out_frame_spinbox.setValue(max_val)
+            self.state.export_spec.frame_range = (0, max_val)
         
         self.max_frame_label.setText(f"(Max: {self.max_frame_count} frames)")
-        self._append_log(f"[OK] Updated frame range limits: max {self.max_frame_count} frames")
+        self._append_log(f"[OK] Frame range initialized: 0 to {max_val} ({self.max_frame_count} frames)")
 
     def _on_in_frame_changed(self, value: int) -> None:
         """Handle in frame spinbox change."""
