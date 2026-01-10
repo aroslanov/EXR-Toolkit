@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QTableView,
     QComboBox,
     QProgressDialog,
+    QMessageBox,
 )
 from PySide6.QtCore import Qt
 
@@ -277,15 +278,22 @@ class MainWindow(QMainWindow):
 
         try:
             # Auto-discover sequences in the directory
+            self._append_log("[LOAD] Discovering sequences in directory...")
+            QApplication.processEvents()
             discovered = SequenceDiscovery.discover_sequences(path)
             if not discovered:
                 loading_dialog.close()
                 self._append_log(f"[ERROR] No image sequences found in directory: {path}")
                 return
 
+            self._append_log(f"[LOAD] Found {len(discovered)} sequence(s)")
+            QApplication.processEvents()
+
             # If multiple sequences, let user choose; if one, use it directly
             if len(discovered) == 1:
                 pattern_str, frames = discovered[0]
+                self._append_log(f"[LOAD] Using sequence: {pattern_str}")
+                QApplication.processEvents()
             else:
                 loading_dialog.close()
                 pattern_str, frames = self._ask_sequence_selection_dialog(discovered)
@@ -300,18 +308,26 @@ class MainWindow(QMainWindow):
 
             # Confirm/show the discovered sequence
             if frames is not None:
-                self._append_log(f"[INFO] Auto-discovered sequence: {pattern_str} ({len(frames)} frames)")
+                self._append_log(f"[LOAD] Initial scan found {len(frames)} frame(s): {pattern_str}")
             else:
-                self._append_log(f"[INFO] Auto-discovered sequence: {pattern_str}")
+                self._append_log(f"[LOAD] Pattern recognized: {pattern_str}")
+            QApplication.processEvents()
 
             # Discover frames again to validate
+            self._append_log("[LOAD] Validating and discovering all frames...")
+            QApplication.processEvents()
             frames_validated = SequenceDiscovery.discover_frames(pattern_str, path)
             if not frames_validated:
                 loading_dialog.close()
                 self._append_log(f"[ERROR] No frames found matching pattern: {pattern_str}")
                 return
 
+            self._append_log(f"[LOAD] Discovered {len(frames_validated)} frame(s)")
+            QApplication.processEvents()
+
             # Probe first frame
+            self._append_log("[LOAD] Probing first frame to extract metadata...")
+            QApplication.processEvents()
             pattern = SequencePathPattern(pattern_str)
             first_frame_path = str(Path(path) / pattern.format(frames_validated[0]))
 
@@ -320,6 +336,9 @@ class MainWindow(QMainWindow):
                 loading_dialog.close()
                 self._append_log(f"[ERROR] Failed to probe file: {first_frame_path}")
                 return
+
+            self._append_log("[LOAD] Metadata extraction complete")
+            QApplication.processEvents()
 
             # Create sequence spec
             seq_id = f"seq_{len(self.state.sequences)}"
@@ -336,10 +355,12 @@ class MainWindow(QMainWindow):
             self.seq_list_model.add_sequence(seq)
             self.settings.set_input_dir(path)  # Save input directory to settings
             num_channels = probe.main_subimage.spec.nchannels if probe.main_subimage else 0
+            num_attributes = len(probe.main_subimage.attributes.attributes) if probe.main_subimage and probe.main_subimage.attributes else 0
             self._append_log(
                 f"[OK] Loaded sequence: {len(frames_validated)} frames, "
-                f"{num_channels} channels"
+                f"{num_channels} channels, {num_attributes} attributes"
             )
+            QApplication.processEvents()
         finally:
             loading_dialog.close()
 
@@ -475,6 +496,18 @@ class MainWindow(QMainWindow):
         """Handle compression selection."""
         self.state.set_compression(compression)
         self.settings.set_compression(compression)  # Save to settings
+        
+        # Update the compression attribute in output attributes if it exists
+        compression_attr = AttributeSpec(
+            name="compression",
+            oiio_type="string",
+            value=compression,
+            source=AttributeSource.CUSTOM,
+            editable=True,
+        )
+        self.state.add_output_attribute(compression_attr)
+        self.attr_editor.model.add_attribute(compression_attr)
+        self.attr_editor.attributes_changed.emit(self.attr_editor.get_attributes())
 
     def _on_frame_policy_changed(self, policy_text: str) -> None:
         """Handle frame policy selection."""
@@ -522,6 +555,10 @@ class MainWindow(QMainWindow):
         self.state.set_filename_pattern(self.filename_pattern_edit.text())
         self.state.set_compression(self.compression_combo.currentText())
 
+        # Check for file overwrites before exporting
+        if not self._check_output_file_overwrite(output_dir):
+            return
+
         # Validate
         export_spec = self.state.get_export_spec()
         issues = ValidationEngine.validate_export(export_spec, self.state.sequences)
@@ -557,6 +594,59 @@ class MainWindow(QMainWindow):
     def _on_export_log(self, message: str) -> None:
         """Handle export log messages."""
         self._append_log(f"[EXPORT] {message}")
+
+    def _check_output_file_overwrite(self, output_dir: str) -> bool:
+        """Check if output files would overwrite existing files. Return False if user cancels."""
+        pattern = self.filename_pattern_edit.text()
+        if not pattern:
+            return True
+        
+        # Check for potential overwrites by looking at first few frames
+        existing_files = []
+        export_spec = self.state.get_export_spec()
+        frame_list = self._resolve_frame_list()
+        
+        # Check first 3 frames as a sample
+        for frame_num in frame_list[:3]:
+            output_path = Path(output_dir) / self._format_filename(pattern, frame_num)
+            if output_path.exists():
+                existing_files.append(output_path.name)
+        
+        if existing_files:
+            # Show confirmation dialog
+            msg = f"Output files already exist and will be overwritten:\n\n"
+            msg += "\n".join(existing_files[:5])
+            if len(existing_files) > 5:
+                msg += f"\n... and {len(existing_files) - 5} more"
+            msg += f"\n\nContinue with export?"
+            
+            reply = QMessageBox.warning(
+                self,
+                "Files Will Be Overwritten",
+                msg,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            return reply == QMessageBox.StandardButton.Yes
+        
+        return True
+
+    def _resolve_frame_list(self) -> list[int]:
+        """Get list of frames to export."""
+        if not self.state.sequences:
+            return []
+        all_frames = []
+        for seq in self.state.sequences.values():
+            all_frames.extend(seq.frames)
+        return sorted(set(all_frames))
+
+    def _format_filename(self, pattern: str, frame: int) -> str:
+        """Format filename with frame number."""
+        import re
+        result = pattern
+        result = re.sub(r"%0(\d+)d", lambda m: str(frame).zfill(int(m.group(1))), result)
+        result = re.sub(r"#+", lambda m: str(frame).zfill(len(m.group(0))), result)
+        return result
 
     def _on_export_finished(self, success: bool, message: str) -> None:
         """Handle export completion."""
