@@ -115,6 +115,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Channels in Selected Sequence"))
         self.channel_list = QListView()
         self.channel_list.setModel(self.ch_list_model)
+        self.channel_list.setSelectionMode(QListView.SelectionMode.MultiSelection)
         layout.addWidget(self.channel_list)
 
         btn_add_to_output = QPushButton("Add Selected to Output")
@@ -164,7 +165,7 @@ class MainWindow(QMainWindow):
         
         options_layout.addWidget(QLabel("Compression:"))
         self.compression_combo = QComboBox()
-        self.compression_combo.addItems(["zip", "rle", "piz", "none"])
+        self.compression_combo.addItems(["zip", "rle", "piz", "dwa", "dwab", "none"])
         self.compression_combo.currentTextChanged.connect(self._on_compression_changed)
         options_layout.addWidget(self.compression_combo)
         
@@ -228,6 +229,7 @@ class MainWindow(QMainWindow):
         self.export_manager.log.connect(self._on_export_log)
         self.export_manager.finished.connect(self._on_export_finished)
         self.attr_editor.attributes_changed.connect(self._on_attributes_changed)
+        self.attr_editor.import_from_source_requested.connect(self._on_import_attributes_from_source)
 
     # ========== Sequence Management ==========
 
@@ -354,32 +356,41 @@ class MainWindow(QMainWindow):
 
     def _on_add_channel_to_output(self) -> None:
         """Handle 'Add Selected to Output' button."""
-        ch_index = self.channel_list.currentIndex()
         seq_index = self.sequence_list.currentIndex()
-
-        if not ch_index.isValid() or not seq_index.isValid():
-            self._append_log("[WARNING] Please select a sequence and a channel")
+        
+        if not seq_index.isValid():
+            self._append_log("[WARNING] Please select a sequence")
             return
 
         seq = self.seq_list_model.get_sequence(seq_index.row())
-        ch = self.ch_list_model.get_channel(ch_index.row())
-
-        if not seq or not ch:
+        if not seq:
             return
 
-        # Create output channel
-        output_ch = OutputChannel(
-            output_name=ch.name,
-            source=ChannelSourceRef(
-                sequence_id=seq.id,
-                channel_name=ch.name,
-                subimage_index=0,
-            ),
-        )
+        # Get all selected channel indices (multi-select)
+        selected_indices = self.channel_list.selectedIndexes()
+        if not selected_indices:
+            self._append_log("[WARNING] Please select at least one channel")
+            return
 
-        self.state.add_output_channel(output_ch)
-        self.out_ch_list_model.add_channel(output_ch)
-        self._append_log(f"[OK] Added output channel: {ch.name}")
+        # Add each selected channel
+        for ch_index in selected_indices:
+            ch = self.ch_list_model.get_channel(ch_index.row())
+            if not ch:
+                continue
+
+            # Create output channel
+            output_ch = OutputChannel(
+                output_name=ch.name,
+                source=ChannelSourceRef(
+                    sequence_id=seq.id,
+                    channel_name=ch.name,
+                    subimage_index=0,
+                ),
+            )
+
+            self.state.add_output_channel(output_ch)
+            self.out_ch_list_model.add_channel(output_ch)
+            self._append_log(f"[OK] Added output channel: {ch.name}")
 
     def _on_remove_output_channel(self) -> None:
         """Handle 'Remove' button for output channels."""
@@ -399,6 +410,28 @@ class MainWindow(QMainWindow):
         """Handle attribute changes."""
         self.state.set_output_attributes(attrs)
         self._append_log(f"[OK] Updated attributes: {len(attrs.attributes)} attributes")
+
+    def _on_import_attributes_from_source(self) -> None:
+        """Handle 'Import from Source' button in attribute editor."""
+        seq_index = self.sequence_list.currentIndex()
+        if not seq_index.isValid():
+            self._append_log("[WARNING] Please select an input sequence first")
+            return
+
+        seq = self.seq_list_model.get_sequence(seq_index.row())
+        if not seq or not seq.static_probe or not seq.static_probe.main_subimage:
+            self._append_log("[WARNING] Selected sequence has no metadata")
+            return
+
+        # Extract attributes from the selected sequence
+        attrs = seq.static_probe.main_subimage.attributes
+        if not attrs or not attrs.attributes:
+            self._append_log("[WARNING] No attributes found in selected sequence")
+            return
+
+        # Import into the attribute editor
+        self.attr_editor.import_attributes(attrs.attributes)
+        self._append_log(f"[OK] Imported {len(attrs.attributes)} attributes from source")
 
     # ========== Export Settings ==========
 

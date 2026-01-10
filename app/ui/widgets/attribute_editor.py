@@ -28,6 +28,8 @@ class AttributeEditor(QWidget):
 
     # Signal emitted when attributes change
     attributes_changed = Signal(AttributeSet)
+    # Signal emitted when import from source is requested
+    import_from_source_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -73,6 +75,12 @@ class AttributeEditor(QWidget):
         """Get current attributes from the model."""
         return AttributeSet(attributes=self.model.attributes)
 
+    def import_attributes(self, attributes: list) -> None:
+        """Import attributes from a source (e.g., input sequence)."""
+        for attr in attributes:
+            self.model.add_attribute(attr)
+        self.attributes_changed.emit(self.get_attributes())
+
     def _on_add_attribute(self) -> None:
         """Handle 'Add Attribute' button."""
         dialog = AddAttributeDialog(self)
@@ -90,9 +98,7 @@ class AttributeEditor(QWidget):
 
     def _on_import_from_source(self) -> None:
         """Handle 'Import from Source' button."""
-        # This is a placeholder; actual implementation depends on MainWindow
-        # providing access to loaded sequences
-        pass
+        self.import_from_source_requested.emit()
 
 
 class AddAttributeDialog(QDialog):

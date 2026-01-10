@@ -411,3 +411,54 @@ Attributes:
 - Metadata display now shows complete list of all attributes
 - No truncation with "... and N more" text
 - Full visibility into sequence metadata
+
+## Session 9 — 2026-01-09
+
+### Goal
+1. Support all EXR compression formats (DWA, DWAB)
+2. Enable multiple channel selection and addition
+3. Implement 'Import Attributes from Source' functionality
+
+### Changes
+
+#### 1. Compression Formats (main_window.py)
+- Added \"dwa\" and \"dwab\" to compression combo box items
+- Compression list now: [\"zip\", \"rle\", \"piz\", \"dwa\", \"dwab\", \"none\"]
+
+#### 2. Multiple Channel Selection (main_window.py)
+- Changed channel_list from SingleSelection to MultiSelection mode
+- Updated _on_add_channel_to_output() to handle multiple selected channels
+- Now users can Ctrl+Click to select multiple channels and add all at once
+
+#### 3. Import Attributes from Source
+
+##### AttributeEditor changes (attribute_editor.py)
+- Added import_from_source_requested Signal
+- Added public import_attributes(attributes) method
+- Updated _on_import_from_source() to emit the signal instead of being a placeholder
+
+##### MainWindow changes (main_window.py)
+- Connected import_from_source_requested signal in _connect_signals()
+- Added _on_import_attributes_from_source() handler that:
+  - Gets selected input sequence
+  - Extracts attributes from sequence FileProbe
+  - Imports them into attribute editor via import_attributes()
+  - Logs result to user
+
+### Verification
+- Ran: .\\.venv\\Scripts\\python -m py_compile app/ui/main_window.py app/ui/widgets/attribute_editor.py
+- Result: Compilation OK
+- Ran: .\\.venv\\Scripts\\python -c \"from app.ui.main_window import MainWindow; from app.ui.widgets import AttributeEditor; print('All imports OK')\"
+- Result: All imports OK
+
+### User Flow
+1. **Compression:** Select from combo box with 6 options (zip, rle, piz, dwa, dwab, none)
+2. **Multi-channel selection:** 
+   - Load sequence → channels list appears
+   - Ctrl+Click to select multiple channels
+   - Click \"Add Selected to Output\" to add all selected channels at once
+3. **Import attributes:**
+   - Select input sequence in left panel
+   - Click \"Import from Source\" button in Attributes tab
+   - Attributes from source sequence automatically populate the table
+
