@@ -28,8 +28,8 @@ class AttributeEditor(QWidget):
 
     # Signal emitted when attributes change
     attributes_changed = Signal(AttributeSet)
-    # Signal emitted when import from source is requested
-    import_from_source_requested = Signal()
+    # Signal emitted when edit attribute is requested
+    edit_attribute_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -60,9 +60,9 @@ class AttributeEditor(QWidget):
         btn_remove.clicked.connect(self._on_remove_attribute)
         btn_layout.addWidget(btn_remove)
 
-        btn_import = QPushButton("Import from Source")
-        btn_import.clicked.connect(self._on_import_from_source)
-        btn_layout.addWidget(btn_import)
+        btn_edit = QPushButton("Edit Attribute")
+        btn_edit.clicked.connect(self._on_edit_attribute)
+        btn_layout.addWidget(btn_edit)
 
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
@@ -96,9 +96,22 @@ class AttributeEditor(QWidget):
             self.model.remove_at(current.row())
             self.attributes_changed.emit(self.get_attributes())
 
-    def _on_import_from_source(self) -> None:
-        """Handle 'Import from Source' button."""
-        self.import_from_source_requested.emit()
+    def _on_edit_attribute(self) -> None:
+        """Handle 'Edit Attribute' button."""
+        current = self.table.currentIndex()
+        if not current.isValid():
+            return
+
+        attr = self.model.get_attribute(current.row())
+        if not attr:
+            return
+
+        # Open edit dialog
+        dialog = EditAttributeDialog(attr, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            updated_attr = dialog.get_attribute()
+            self.model.add_attribute(updated_attr)
+            self.attributes_changed.emit(self.get_attributes())
 
 
 class AddAttributeDialog(QDialog):
@@ -151,3 +164,58 @@ class AddAttributeDialog(QDialog):
             source=AttributeSource.CUSTOM,
             editable=True,
         )
+
+
+class EditAttributeDialog(QDialog):
+    """Dialog for editing an existing attribute."""
+
+    def __init__(self, attr: AttributeSpec, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Attribute")
+        self.setGeometry(100, 100, 400, 200)
+        self.attr = attr
+
+        layout = QVBoxLayout(self)
+
+        # Name (read-only)
+        layout.addWidget(QLabel("Name:"))
+        self.name_edit = QLineEdit()
+        self.name_edit.setText(attr.name)
+        self.name_edit.setReadOnly(True)
+        layout.addWidget(self.name_edit)
+
+        # Type (read-only)
+        layout.addWidget(QLabel("Type:"))
+        self.type_combo = QComboBox()
+        self.type_combo.addItems([
+            "string",
+            "int",
+            "float",
+            "unknown",
+        ])
+        idx = self.type_combo.findText(attr.oiio_type)
+        if idx >= 0:
+            self.type_combo.setCurrentIndex(idx)
+        self.type_combo.setEnabled(False)
+        layout.addWidget(self.type_combo)
+
+        # Value (editable)
+        layout.addWidget(QLabel("Value:"))
+        self.value_edit = QLineEdit()
+        self.value_edit.setText(str(attr.value))
+        layout.addWidget(self.value_edit)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_ok = QPushButton("OK")
+        btn_cancel = QPushButton("Cancel")
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel.clicked.connect(self.reject)
+        btn_layout.addWidget(btn_ok)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
+
+    def get_attribute(self) -> AttributeSpec:
+        """Get the updated attribute."""
+        self.attr.value = self.value_edit.text()
+        return self.attr

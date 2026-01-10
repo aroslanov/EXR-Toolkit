@@ -175,6 +175,47 @@ class OutputChannelListModel(QAbstractListModel):
         return None
 
 
+class AttributeListModel(QAbstractListModel):
+    """Model for a read-only attribute list (for selection)."""
+
+    def __init__(self):
+        super().__init__()
+        self.attributes: List[AttributeSpec] = []
+
+    def set_attributes(self, attributes: List[AttributeSpec]) -> None:
+        """Replace attributes and refresh view."""
+        self.beginResetModel()
+        self.attributes = attributes
+        self.endResetModel()
+
+    def get_attribute(self, index: int) -> Optional[AttributeSpec]:
+        """Get attribute at index."""
+        if 0 <= index < len(self.attributes):
+            return self.attributes[index]
+        return None
+
+    def rowCount(self, parent: Union[QModelIndex, QPersistentModelIndex] = QModelIndex()) -> int:
+        return len(self.attributes)
+
+    def data(
+        self,
+        index: Union[QModelIndex, QPersistentModelIndex],
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> Any:
+        if not index.isValid():
+            return None
+
+        attr = self.attributes[index.row()]
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            return f"{attr.name} ({attr.oiio_type})"
+
+        if role == Qt.ItemDataRole.UserRole:
+            return attr
+
+        return None
+
+
 class AttributeTableModel(QAbstractTableModel):
     """Model for attribute table (Name, Type, Value, Source, Enabled)."""
 

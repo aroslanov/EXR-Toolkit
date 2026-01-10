@@ -43,6 +43,7 @@ from ..ui.models import (
     SequenceListModel,
     ChannelListModel,
     OutputChannelListModel,
+    AttributeListModel,
     AttributeTableModel,
 )
 from ..ui.widgets import AttributeEditor
@@ -67,6 +68,7 @@ class MainWindow(QMainWindow):
         self.seq_list_model = SequenceListModel()
         self.ch_list_model = ChannelListModel()
         self.out_ch_list_model = OutputChannelListModel()
+        self.attr_list_model = AttributeListModel()
         self.attr_table_model = AttributeTableModel()
 
         # Build UI
@@ -127,11 +129,15 @@ class MainWindow(QMainWindow):
         btn_add_to_output.clicked.connect(self._on_add_channel_to_output)
         layout.addWidget(btn_add_to_output)
 
-        layout.addWidget(QLabel("Metadata"))
-        self.metadata_display = QTextEdit()
-        self.metadata_display.setReadOnly(True)
-        self.metadata_display.setMaximumHeight(150)
-        layout.addWidget(self.metadata_display)
+        layout.addWidget(QLabel("Attributes"))
+        self.attribute_list = QListView()
+        self.attribute_list.setModel(self.attr_list_model)
+        self.attribute_list.setSelectionMode(QListView.SelectionMode.MultiSelection)
+        layout.addWidget(self.attribute_list)
+
+        btn_add_attrs = QPushButton("Add Selected to Output Attributes")
+        btn_add_attrs.clicked.connect(self._on_add_attributes_to_output)
+        layout.addWidget(btn_add_attrs)
 
         layout.addStretch()
         return panel
@@ -234,7 +240,6 @@ class MainWindow(QMainWindow):
         self.export_manager.log.connect(self._on_export_log)
         self.export_manager.finished.connect(self._on_export_finished)
         self.attr_editor.attributes_changed.connect(self._on_attributes_changed)
-        self.attr_editor.import_from_source_requested.connect(self._on_import_attributes_from_source)
 
     # ========== Sequence Management ==========
 
@@ -319,45 +324,13 @@ class MainWindow(QMainWindow):
             channels = seq.static_probe.main_subimage.channels
             self.ch_list_model.set_channels(channels)
             
-            # Build and display metadata
-            metadata_text = self._format_sequence_metadata(seq)
-            self.metadata_display.setText(metadata_text)
-            
-            self._append_log(f"[OK] Selected sequence: {seq.display_name} ({len(channels)} channels)")
-
-    def _format_sequence_metadata(self, seq: SequenceSpec) -> str:
-        """Format sequence metadata for display."""
-        lines = []
-        
-        if seq.static_probe and seq.static_probe.main_subimage:
-            spec = seq.static_probe.main_subimage.spec
-            
-            # Basic info
-            lines.append(f"Pattern: {seq.pattern}")
-            lines.append(f"Frames: {len(seq.frames)} ({min(seq.frames) if seq.frames else 0}-{max(seq.frames) if seq.frames else 0})")
-            lines.append("")
-            
-            # Resolution
-            lines.append(f"Resolution: {spec.width}x{spec.height}")
-            lines.append(f"Channels: {spec.nchannels}")
-            lines.append("")
-            
-            # Channel details
-            if spec.channelnames:
-                lines.append("Channel List:")
-                for i, ch_name in enumerate(spec.channelnames):
-                    fmt = spec.channelformats[i] if i < len(spec.channelformats) else "unknown"
-                    lines.append(f"  {i+1}. {ch_name} ({fmt})")
-                lines.append("")
-            
-            # Attributes
+            # Populate attributes list
+            attributes = []
             if seq.static_probe.main_subimage.attributes and seq.static_probe.main_subimage.attributes.attributes:
-                lines.append("Attributes:")
-                attrs = seq.static_probe.main_subimage.attributes.attributes
-                for attr in attrs:  # Show ALL attributes
-                    lines.append(f"  {attr.name}: {attr.value}")
-        
-        return "\n".join(lines) if lines else "No metadata available"
+                attributes = seq.static_probe.main_subimage.attributes.attributes
+            self.attr_list_model.set_attributes(attributes)
+            
+            self._append_log(f"[OK] Selected sequence: {seq.display_name} ({len(channels)} channels, {len(attributes)} attributes)")
 
     # ========== Output Channel Management ==========
 
@@ -411,6 +384,24 @@ class MainWindow(QMainWindow):
             self.out_ch_list_model.remove_at(current.row())
             self._append_log(f"[OK] Removed output channel: {ch.output_name}")
 
+    def _on_add_attributes_to_output(self) -> None:
+        """Handle 'Add Selected to Output Attributes' button."""
+        # Get all selected attribute indices (multi-select)
+        selected_indices = self.attribute_list.selectedIndexes()
+        if not selected_indices:
+            self._append_log("[WARNING] Please select at least one attribute")
+            return
+
+        # Add each selected attribute to the attribute editor
+        for attr_index in selected_indices:
+            attr = self.attr_list_model.get_attribute(attr_index.row())
+            if attr:
+                self.attr_editor.model.add_attribute(attr)
+                self._append_log(f"[OK] Added output attribute: {attr.name}")
+
+        # Notify of change
+        self.attr_editor.attributes_changed.emit(self.attr_editor.get_attributes())
+
     # ========== Attribute Management ==========
 
     def _on_attributes_changed(self, attrs) -> None:
@@ -419,26 +410,10 @@ class MainWindow(QMainWindow):
         self._append_log(f"[OK] Updated attributes: {len(attrs.attributes)} attributes")
 
     def _on_import_attributes_from_source(self) -> None:
-        """Handle 'Import from Source' button in attribute editor."""
-        seq_index = self.sequence_list.currentIndex()
-        if not seq_index.isValid():
-            self._append_log("[WARNING] Please select an input sequence first")
-            return
-
-        seq = self.seq_list_model.get_sequence(seq_index.row())
-        if not seq or not seq.static_probe or not seq.static_probe.main_subimage:
-            self._append_log("[WARNING] Selected sequence has no metadata")
-            return
-
-        # Extract attributes from the selected sequence
-        attrs = seq.static_probe.main_subimage.attributes
-        if not attrs or not attrs.attributes:
-            self._append_log("[WARNING] No attributes found in selected sequence")
-            return
-
-        # Import into the attribute editor
-        self.attr_editor.import_attributes(attrs.attributes)
-        self._append_log(f"[OK] Imported {len(attrs.attributes)} attributes from source")
+        """Handle 'Edit Attribute' button in attribute editor."""
+        # This handler remains for potential future use
+        # The "Edit Attribute" button in AttributeEditor will open a dialog for editing
+        pass
 
     # ========== Export Settings ==========
 
