@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QListView,
     QTableView,
     QComboBox,
+    QProgressDialog,
 )
 from PySide6.QtCore import Qt
 
@@ -263,60 +264,84 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
-        # Auto-discover sequences in the directory
-        discovered = SequenceDiscovery.discover_sequences(path)
-        if not discovered:
-            self._append_log(f"[ERROR] No image sequences found in directory: {path}")
-            return
+        # Create and show loading dialog
+        loading_dialog = QProgressDialog("Loading sequence...", "", 0, 0, self)
+        loading_dialog.setWindowTitle("Loading")
+        loading_dialog.setCancelButton(None)
+        loading_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        loading_dialog.show()
 
-        # If multiple sequences, let user choose; if one, use it directly
-        if len(discovered) == 1:
-            pattern_str, frames = discovered[0]
-        else:
-            pattern_str, frames = self._ask_sequence_selection_dialog(discovered)
-            if pattern_str is None:
+        # Process events to show dialog
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+        try:
+            # Auto-discover sequences in the directory
+            discovered = SequenceDiscovery.discover_sequences(path)
+            if not discovered:
+                loading_dialog.close()
+                self._append_log(f"[ERROR] No image sequences found in directory: {path}")
                 return
 
-        # Confirm/show the discovered sequence
-        if frames is not None:
-            self._append_log(f"[INFO] Auto-discovered sequence: {pattern_str} ({len(frames)} frames)")
-        else:
-            self._append_log(f"[INFO] Auto-discovered sequence: {pattern_str}")
+            # If multiple sequences, let user choose; if one, use it directly
+            if len(discovered) == 1:
+                pattern_str, frames = discovered[0]
+            else:
+                loading_dialog.close()
+                pattern_str, frames = self._ask_sequence_selection_dialog(discovered)
+                if pattern_str is None:
+                    return
+                loading_dialog = QProgressDialog("Loading sequence...", "", 0, 0, self)
+                loading_dialog.setWindowTitle("Loading")
+                loading_dialog.setCancelButton(None)
+                loading_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+                loading_dialog.show()
+                QApplication.processEvents()
 
-        # Discover frames again to validate
-        frames_validated = SequenceDiscovery.discover_frames(pattern_str, path)
-        if not frames_validated:
-            self._append_log(f"[ERROR] No frames found matching pattern: {pattern_str}")
-            return
+            # Confirm/show the discovered sequence
+            if frames is not None:
+                self._append_log(f"[INFO] Auto-discovered sequence: {pattern_str} ({len(frames)} frames)")
+            else:
+                self._append_log(f"[INFO] Auto-discovered sequence: {pattern_str}")
 
-        # Probe first frame
-        pattern = SequencePathPattern(pattern_str)
-        first_frame_path = str(Path(path) / pattern.format(frames_validated[0]))
+            # Discover frames again to validate
+            frames_validated = SequenceDiscovery.discover_frames(pattern_str, path)
+            if not frames_validated:
+                loading_dialog.close()
+                self._append_log(f"[ERROR] No frames found matching pattern: {pattern_str}")
+                return
 
-        probe = OiioAdapter.probe_file(first_frame_path)
-        if not probe:
-            self._append_log(f"[ERROR] Failed to probe file: {first_frame_path}")
-            return
+            # Probe first frame
+            pattern = SequencePathPattern(pattern_str)
+            first_frame_path = str(Path(path) / pattern.format(frames_validated[0]))
 
-        # Create sequence spec
-        seq_id = f"seq_{len(self.state.sequences)}"
-        seq = SequenceSpec(
-            id=seq_id,
-            display_name=f"{seq_id} ({len(frames_validated)} frames)",
-            pattern=pattern,
-            source_dir=Path(path),
-            frames=frames_validated,
-            static_probe=probe,
-        )
+            probe = OiioAdapter.probe_file(first_frame_path)
+            if not probe:
+                loading_dialog.close()
+                self._append_log(f"[ERROR] Failed to probe file: {first_frame_path}")
+                return
 
-        self.state.add_sequence(seq)
-        self.seq_list_model.add_sequence(seq)
-        self.settings.set_input_dir(path)  # Save input directory to settings
-        num_channels = probe.main_subimage.spec.nchannels if probe.main_subimage else 0
-        self._append_log(
-            f"[OK] Loaded sequence: {len(frames_validated)} frames, "
-            f"{num_channels} channels"
-        )
+            # Create sequence spec
+            seq_id = f"seq_{len(self.state.sequences)}"
+            seq = SequenceSpec(
+                id=seq_id,
+                display_name=f"{seq_id} ({len(frames_validated)} frames)",
+                pattern=pattern,
+                source_dir=Path(path),
+                frames=frames_validated,
+                static_probe=probe,
+            )
+
+            self.state.add_sequence(seq)
+            self.seq_list_model.add_sequence(seq)
+            self.settings.set_input_dir(path)  # Save input directory to settings
+            num_channels = probe.main_subimage.spec.nchannels if probe.main_subimage else 0
+            self._append_log(
+                f"[OK] Loaded sequence: {len(frames_validated)} frames, "
+                f"{num_channels} channels"
+            )
+        finally:
+            loading_dialog.close()
 
     def _on_remove_sequence(self) -> None:
         """Handle 'Remove' button for sequences."""

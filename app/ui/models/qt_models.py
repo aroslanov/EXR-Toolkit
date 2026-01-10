@@ -62,7 +62,9 @@ class SequenceListModel(QAbstractListModel):
         seq = self.sequences[index.row()]
 
         if role == Qt.ItemDataRole.DisplayRole:
-            return f"{seq.display_name} ({len(seq.frames)} frames)"
+            # Include pattern filename in display
+            filename = str(seq.pattern.pattern)
+            return f"{seq.display_name} | {filename}"
 
         if role == Qt.ItemDataRole.UserRole:
             return seq.id
