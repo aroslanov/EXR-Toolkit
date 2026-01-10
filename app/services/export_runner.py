@@ -3,11 +3,16 @@ Threaded export runner for EXR sequence export.
 
 Runs in a QThread/QRunnable, emits progress/log signals.
 Performs validation, channel recombination, and EXR writing.
+
+Supports parallel frame processing via ThreadPoolExecutor.
 """
 
 from pathlib import Path
 from typing import List, Optional
 import traceback
+import threading
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from PySide6.QtCore import QObject, QThread, Signal, QRunnable, QThreadPool
 
@@ -30,6 +35,36 @@ class ExportSignals(QObject):
     log = Signal(str)  # log message
 
 
+class AtomicProgress:
+    """Thread-safe progress counter for parallel workers."""
+
+    def __init__(self, total: int):
+        self.lock = threading.Lock()
+        self.completed = 0
+        self.total = total
+        self.last_logged_frame = -1
+
+    def increment(self, frame_num: int) -> int:
+        """
+        Increment progress counter.
+        Returns current percentage (0-100).
+        """
+        with self.lock:
+            self.completed += 1
+            self.last_logged_frame = frame_num
+            return int((self.completed / self.total) * 100)
+
+    def get_percent(self) -> int:
+        """Get current progress percentage."""
+        with self.lock:
+            return int((self.completed / self.total) * 100)
+
+    def get_completed(self) -> int:
+        """Get number of completed frames."""
+        with self.lock:
+            return self.completed
+
+
 class ExportRunner(QRunnable):
     """Runnable for export operations."""
 
@@ -49,7 +84,7 @@ class ExportRunner(QRunnable):
         self.stop_requested = True
 
     def run(self) -> None:
-        """Execute the export."""
+        """Execute the export with parallel frame processing."""
         try:
             self._log("Starting export...")
 
@@ -77,31 +112,106 @@ class ExportRunner(QRunnable):
 
             self._log(f"Exporting {len(frame_list)} frames...")
 
-            # Export frames
-            for i, frame_num in enumerate(frame_list):
-                # Check if stop was requested
-                if self.stop_requested:
-                    self._log("Export cancelled by user")
-                    self.signals.finished.emit(False, "Export cancelled by user")
-                    return
-
-                try:
-                    self._export_frame(frame_num)
-                    progress = int((i + 1) / len(frame_list) * 100)
-                    self.signals.progress.emit(progress, f"Frame {frame_num}")
-                except Exception as e:
-                    self._log(f"ERROR exporting frame {frame_num}: {e}")
-                    traceback.print_exc()
-                    self.signals.finished.emit(False, f"Export failed at frame {frame_num}")
-                    return
-
-            self._log("Export completed successfully!")
-            self.signals.finished.emit(True, "Export completed successfully!")
+            # Export frames in parallel
+            self._export_frames_parallel(frame_list)
 
         except Exception as e:
             self._log(f"FATAL: {e}")
             traceback.print_exc()
             self.signals.finished.emit(False, f"Export failed: {e}")
+
+    def _export_frames_parallel(self, frame_list: List[int]) -> None:
+        """Export frames in parallel using ThreadPoolExecutor."""
+        num_workers = self._get_optimal_worker_count(len(frame_list))
+        progress = AtomicProgress(len(frame_list))
+
+        self._log(f"Using {num_workers} worker threads")
+
+        try:
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                # Submit all frame export tasks
+                futures = {
+                    executor.submit(self._export_frame_wrapper, frame_num): frame_num
+                    for frame_num in frame_list
+                }
+
+                # Process completions as they arrive, checking stop_requested regularly
+                for future in as_completed(futures):
+                    if self.stop_requested:
+                        # Immediately terminate all workers
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        self._log("Export stopped by user - terminating all workers")
+                        self.signals.finished.emit(False, "Export stopped by user")
+                        return
+
+                    frame_num = futures[future]
+                    try:
+                        # Skip if future was cancelled
+                        if future.cancelled():
+                            continue
+
+                        future.result()  # Will raise if exception occurred
+                        percent = progress.increment(frame_num)
+                        self.signals.progress.emit(percent, f"Frame {frame_num}")
+
+                    except Exception as e:
+                        # Check if error was due to user stop request
+                        if self.stop_requested:
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            self._log("Export stopped by user")
+                            self.signals.finished.emit(False, "Export stopped by user")
+                            return
+                        
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        self._log(f"ERROR exporting frame {frame_num}: {e}")
+                        traceback.print_exc()
+                        self.signals.finished.emit(False, f"Export failed at frame {frame_num}")
+                        return
+
+            # All frames completed successfully
+            self._log("Export completed successfully!")
+            self.signals.finished.emit(True, "Export completed successfully!")
+
+        except Exception as e:
+            self._log(f"FATAL: Thread pool error: {e}")
+            traceback.print_exc()
+            self.signals.finished.emit(False, f"Export failed: {e}")
+
+    def _export_frame_wrapper(self, frame_num: int) -> None:
+        """
+        Wrapper for frame export that can be used with ThreadPoolExecutor.
+        Checks stop_requested flag and provides graceful cancellation.
+        """
+        # Check if stop was requested before starting
+        if self.stop_requested:
+            return
+
+        # Export the frame, checking stop flag during processing
+        try:
+            self._export_frame(frame_num)
+        except Exception:
+            # If stop was requested during export, suppress the exception
+            if self.stop_requested:
+                return
+            raise
+
+    def _get_optimal_worker_count(self, num_frames: int) -> int:
+        """
+        Determine optimal number of worker threads.
+        
+        Strategy:
+        - For small exports (<5 frames): 1 worker
+        - For medium exports (5-100): min(4, available_cores)
+        - For large exports (>100): min(8, available_cores)
+        """
+        available_cores = os.cpu_count() or 4
+
+        if num_frames < 5:
+            return 1
+        elif num_frames < 100:
+            return min(4, available_cores)
+        else:
+            return min(8, available_cores)
 
     def _resolve_frame_list(self) -> List[int]:
         """Determine which frames to export based on policy."""
@@ -117,12 +227,23 @@ class ExportRunner(QRunnable):
 
         all_frames = sorted(set(all_frames))
 
-        # For phase-1, simply use all discovered frames
-        # (frame policy would be applied here in future)
+        # Apply frame_range filter if specified by user
+        if self.export_spec.frame_range is not None:
+            start_frame, end_frame = self.export_spec.frame_range
+            all_frames = [f for f in all_frames if start_frame <= f <= end_frame]
+            if not all_frames:
+                self._log(
+                    f"Warning: No frames found in range [{start_frame}, {end_frame}]"
+                )
+
         return all_frames
 
     def _export_frame(self, frame_num: int) -> None:
         """Export a single frame."""
+        # Check if stop was requested
+        if self.stop_requested:
+            raise RuntimeError("Export stopped by user")
+
         # Build output filename
         pattern = self.export_spec.filename_pattern
         output_path = Path(self.export_spec.output_dir) / self._format_filename(
@@ -133,6 +254,10 @@ class ExportRunner(QRunnable):
         output_data, output_spec = self._assemble_frame(frame_num)
         if output_data is None:
             raise RuntimeError(f"Failed to assemble frame {frame_num}")
+
+        # Check again before writing (I/O operations may have taken time)
+        if self.stop_requested:
+            raise RuntimeError("Export stopped by user")
 
         # Write output EXR
         self._write_exr(output_path, output_data, output_spec)
@@ -173,6 +298,10 @@ class ExportRunner(QRunnable):
 
         # Fill output buffer
         for out_idx, out_ch in enumerate(self.export_spec.output_channels):
+            # Check for stop request between channel reads
+            if self.stop_requested:
+                raise RuntimeError("Export stopped by user")
+
             src_seq = self.sequences.get(out_ch.source.sequence_id)
             if not src_seq:
                 continue
@@ -194,6 +323,9 @@ class ExportRunner(QRunnable):
                 if src_data is not None:
                     output_data[:, :, out_idx] = src_data
             except Exception as e:
+                # Suppress exception if stop was requested
+                if self.stop_requested:
+                    raise RuntimeError("Export stopped by user")
                 self._log(f"Warning: Could not read {out_ch.source.channel_name}: {e}")
 
         return output_data, {
@@ -206,6 +338,10 @@ class ExportRunner(QRunnable):
         self, filepath: str, channel_name: str, subimage_index: int = 0
     ) -> Optional[np.ndarray]:
         """Read a single channel from a file."""
+        # Check for stop request before I/O
+        if self.stop_requested:
+            raise RuntimeError("Export stopped by user")
+
         try:
             inp = oiio.ImageInput.open(filepath)
             if not inp:
