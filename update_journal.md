@@ -662,3 +662,59 @@ Valid formats (from OpenImageIO test suite):
 4. Click EXPORT → button turns red (STOP), export runs again (NOW WORKS!)
 5. Can change compression settings between exports
 
+
+## Session 14 — 2026-01-09
+
+### Goal
+1. Change sequence display names from \"Seq: folder_name\" to just seq_0, seq_1, etc.
+2. Add settings.ini persistence for:
+   - Last input directory
+   - Last output directory
+   - EXR compression setting
+
+### Changes
+
+#### 1. Sequence Display Name Format (main_window.py)
+- Changed display_name from: f\"Seq: {Path(path).name} ({len(frames_validated)} frames)\"
+- Changed to: f\"{seq_id} ({len(frames_validated)} frames)\"
+- Result: \"seq_0 (901 frames)\" instead of \"Seq: render (901 frames)\"
+
+#### 2. Settings Persistence Module (app/services/settings.py - NEW)
+- Created Settings class using ConfigParser
+- Settings file: settings.ini at project root
+- Methods:
+  - get_input_dir() / set_input_dir(path)
+  - get_output_dir() / set_output_dir(path)
+  - get_compression() / set_compression(compression)
+- Auto-creates settings.ini with defaults on first run
+- All set methods auto-save to disk
+
+#### 3. MainWindow Integration (main_window.py)
+- Added: from ..services.settings import Settings
+- Added: self.settings = Settings() in __init__
+- Added: _load_settings() called after _connect_signals()
+- Updated _on_load_sequence():
+  - Added: self.settings.set_input_dir(path)
+- Updated _on_browse_output_dir():
+  - Added: self.settings.set_output_dir(path)
+- Updated _on_compression_changed():
+  - Added: self.settings.set_compression(compression)
+- Added _load_settings() method:
+  - Restores compression setting to combo box
+  - Restores output directory to text field
+  - Syncs state with restored values
+
+### Verification
+- Ran: .\\.venv\\Scripts\\python -m py_compile app/services/settings.py app/ui/main_window.py
+- Result: Compilation OK
+- Ran: .\\.venv\\Scripts\\python -c \"from app.ui.main_window import MainWindow; from app.services.settings import Settings; print('Imports OK')\"
+- Result: Imports OK
+
+### User Flow
+1. First run: settings.ini created in project root with defaults
+2. Load input sequence → path saved to settings
+3. Browse output directory → path saved to settings
+4. Change compression → setting saved to settings
+5. Restart app → output dir and compression restored automatically
+6. Sequence display shows: seq_0 (901 frames), seq_1 (492 frames), etc.
+

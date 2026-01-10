@@ -38,6 +38,7 @@ from ..core import (
 from ..oiio import OiioAdapter
 from ..core.sequence import SequenceDiscovery
 from ..services import ProjectState, ExportManager
+from ..services.settings import Settings
 from ..ui.models import (
     SequenceListModel,
     ChannelListModel,
@@ -55,6 +56,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("EXR Channel Recombiner")
         self.setGeometry(100, 100, 1600, 950)
 
+        # Settings
+        self.settings = Settings()
+
         # State
         self.state = ProjectState()
         self.export_manager = ExportManager()
@@ -68,6 +72,7 @@ class MainWindow(QMainWindow):
         # Build UI
         self._build_ui()
         self._connect_signals()
+        self._load_settings()
 
     def _build_ui(self) -> None:
         """Build the main UI layout."""
@@ -278,7 +283,7 @@ class MainWindow(QMainWindow):
         seq_id = f"seq_{len(self.state.sequences)}"
         seq = SequenceSpec(
             id=seq_id,
-            display_name=f"Seq: {Path(path).name} ({len(frames_validated)} frames)",
+            display_name=f"{seq_id} ({len(frames_validated)} frames)",
             pattern=pattern,
             source_dir=Path(path),
             frames=frames_validated,
@@ -287,6 +292,7 @@ class MainWindow(QMainWindow):
 
         self.state.add_sequence(seq)
         self.seq_list_model.add_sequence(seq)
+        self.settings.set_input_dir(path)  # Save input directory to settings
         num_channels = probe.main_subimage.spec.nchannels if probe.main_subimage else 0
         self._append_log(
             f"[OK] Loaded sequence: {len(frames_validated)} frames, "
@@ -442,6 +448,7 @@ class MainWindow(QMainWindow):
         if path:
             self.output_dir_edit.setText(path)
             self.state.set_output_dir(path)
+            self.settings.set_output_dir(path)  # Save to settings
 
     def _on_filename_pattern_changed(self, text: str) -> None:
         """Handle filename pattern change."""
@@ -450,6 +457,7 @@ class MainWindow(QMainWindow):
     def _on_compression_changed(self, compression: str) -> None:
         """Handle compression selection."""
         self.state.set_compression(compression)
+        self.settings.set_compression(compression)  # Save to settings
 
     # ========== Export ==========
 
@@ -587,3 +595,18 @@ class MainWindow(QMainWindow):
             pattern, frames = combo.currentData()
             return pattern, frames
         return None, None
+    # ========== Settings ==========
+
+    def _load_settings(self) -> None:
+        """Load saved settings and restore UI state."""
+        # Load compression setting
+        saved_compression = self.settings.get_compression()
+        idx = self.compression_combo.findText(saved_compression)
+        if idx >= 0:
+            self.compression_combo.setCurrentIndex(idx)
+
+        # Load output directory
+        saved_output_dir = self.settings.get_output_dir()
+        if saved_output_dir:
+            self.output_dir_edit.setText(saved_output_dir)
+            self.state.set_output_dir(saved_output_dir)
