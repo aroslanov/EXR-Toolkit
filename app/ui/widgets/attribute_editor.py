@@ -46,7 +46,7 @@ class AttributeEditor(QWidget):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         layout.addWidget(self.table)
 
         # Buttons
@@ -91,10 +91,18 @@ class AttributeEditor(QWidget):
 
     def _on_remove_attribute(self) -> None:
         """Handle 'Remove' button."""
-        current = self.table.currentIndex()
-        if current.isValid():
-            self.model.remove_at(current.row())
-            self.attributes_changed.emit(self.get_attributes())
+        selected_indices = self.table.selectedIndexes()
+        if not selected_indices:
+            return
+
+        # Get unique row indices from selected cells
+        rows_to_remove = sorted(set(idx.row() for idx in selected_indices), reverse=True)
+
+        # Remove in reverse order to maintain correct indices
+        for row in rows_to_remove:
+            self.model.remove_at(row)
+
+        self.attributes_changed.emit(self.get_attributes())
 
     def _on_edit_attribute(self) -> None:
         """Handle 'Edit Attribute' button."""

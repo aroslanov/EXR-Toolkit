@@ -35,6 +35,8 @@ from ..core import (
     ValidationEngine,
     ValidationSeverity,
     FrameRangePolicy,
+    AttributeSpec,
+    AttributeSource,
 )
 from ..oiio import OiioAdapter
 from ..core.sequence import SequenceDiscovery
@@ -604,3 +606,19 @@ class MainWindow(QMainWindow):
         if saved_output_dir:
             self.output_dir_edit.setText(saved_output_dir)
             self.state.set_output_dir(saved_output_dir)
+
+        # Add compression attribute to output attributes
+        self._add_compression_attribute()
+
+    def _add_compression_attribute(self) -> None:
+        """Add compression attribute based on current compression setting."""
+        compression = self.state.get_compression()
+        compression_attr = AttributeSpec(
+            name="compression",
+            oiio_type="string",
+            value=compression,
+            source=AttributeSource.CUSTOM,
+            editable=True,
+        )
+        self.state.add_output_attribute(compression_attr)
+        self.attr_editor.model.add_attribute(compression_attr)

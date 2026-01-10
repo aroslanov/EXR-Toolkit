@@ -217,9 +217,9 @@ class AttributeListModel(QAbstractListModel):
 
 
 class AttributeTableModel(QAbstractTableModel):
-    """Model for attribute table (Name, Type, Value, Source, Enabled)."""
+    """Model for attribute table (Name, Type, Value)."""
 
-    COLUMNS = ["Name", "Type", "Value", "Source", "Enabled"]
+    COLUMNS = ["Name", "Type", "Value"]
 
     def __init__(self):
         super().__init__()
@@ -293,10 +293,6 @@ class AttributeTableModel(QAbstractTableModel):
                 return attr.oiio_type
             elif col == 2:
                 return str(attr.value)
-            elif col == 3:
-                return attr.source.name
-            elif col == 4:
-                return "✓" if attr.editable else "✗"
 
         if role == Qt.ItemDataRole.UserRole:
             return attr
@@ -309,37 +305,14 @@ class AttributeTableModel(QAbstractTableModel):
         value: Any,
         role: int = Qt.ItemDataRole.EditRole,
     ) -> bool:
-        """Support editing (basic implementation)."""
-        if not index.isValid():
-            return False
-
-        if role != Qt.ItemDataRole.EditRole:
-            return False
-
-        attr = self.attributes[index.row()]
-        col = index.column()
-
-        if col == 0:
-            attr.name = str(value)
-        elif col == 2:
-            attr.value = value
-        else:
-            return False
-
-        self.dataChanged.emit(index, index)
-        return True
+        """Editing is disabled - only selection allowed."""
+        return False
 
     def flags(self, index: Union[QModelIndex, QPersistentModelIndex]):
         if not index.isValid():
             return Qt.ItemFlag.NoItemFlags
 
-        attr = self.attributes[index.row()]
-        col = index.column()
-
         default_flags = super().flags(index)
 
-        # Name and Value columns are editable
-        if col in [0, 2]:
-            return default_flags | Qt.ItemFlag.ItemIsEditable
-
-        return default_flags
+        # Only allow selection, no editing
+        return default_flags & ~Qt.ItemFlag.ItemIsEditable

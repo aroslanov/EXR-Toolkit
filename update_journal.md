@@ -106,3 +106,40 @@ All requested changes have been successfully implemented and tested.
 
 ### Status: COMPLETE
 All three improvements have been successfully implemented and tested.
+
+## 2026-01-09 - Output Attributes Refinements
+
+### Task: Four improvements requested
+1. Output attributes must support multiline selection (for multiline remove)
+2. Remove the Source and Enabled columns
+3. BUG: Double-click on attribute name deletes its name - disable in-list editing
+4. Automatically add compression attribute on program load
+
+### Changes Implemented:
+
+1. **app/ui/models/qt_models.py - AttributeTableModel**
+   - Changed COLUMNS from 5 to 3: ["Name", "Type", "Value"]
+   - Updated data() method to only handle 3 columns
+   - Updated flags() to disable editing (return flags without ItemIsEditable)
+   - Updated setData() to return False (no editing allowed)
+
+2. **app/ui/widgets/attribute_editor.py - AttributeEditor**
+   - Changed table selection mode from SingleSelection to MultiSelection
+   - Updated _on_remove_attribute() to handle multiple selected rows
+   - Gets all selected indices and removes rows in reverse order to maintain correct indices
+
+3. **app/ui/main_window.py - MainWindow**
+   - Imported AttributeSpec and AttributeSource from core
+   - Added _add_compression_attribute() method
+   - Updated _load_settings() to call _add_compression_attribute()
+   - Compression attribute created with current compression value from settings
+
+### Testing Results
+- MainWindow instantiates successfully with MultiSelection enabled ✓
+- AttributeTableModel has 3 columns only ✓
+- In-table editing disabled: ItemIsEditable=False, setData() returns False ✓
+- Compression attribute auto-added on load with value "dwab" ✓
+- Multiline removal works: select rows 0 and 2, removes them leaving only row 1 ✓
+
+### Status: COMPLETE
+All four improvements have been successfully implemented and tested.
