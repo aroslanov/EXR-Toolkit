@@ -143,3 +143,48 @@ All three improvements have been successfully implemented and tested.
 
 ### Status: COMPLETE
 All four improvements have been successfully implemented and tested.
+
+## 2026-01-09 - Source Attributes Table and Frame Policy Persistence
+
+### Task: Two improvements requested
+1. Make source attribute list a table - similar to output attributes list
+2. Frame policy setting should be stored in settings.ini
+
+### Changes Implemented:
+
+1. **app/services/settings.py - Settings class**
+   - Added KEY_FRAME_POLICY = "frame_policy" constant
+   - Updated _load() to set default frame_policy as "STOP_AT_SHORTEST"
+   - Added get_frame_policy() method
+   - Added set_frame_policy(policy: str) method
+   - Frame policy saved and loaded from settings.ini
+
+2. **app/ui/main_window.py - MainWindow**
+   - Added QTableView import
+   - Replaced attribute_list (QListView) with source_attribute_table (QTableView)
+   - Using existing attr_table_model (AttributeTableModel) for source attributes
+   - Updated _on_sequence_selected() to populate attr_table_model instead of attr_list_model
+   - Updated _on_add_attributes_to_output() to work with table (handles multi-row selection)
+   - Removed attr_list_model initialization (no longer needed)
+   - Removed AttributeListModel import (no longer used)
+   - Updated _load_settings() to load and apply frame_policy from settings
+   - Added _get_frame_policy_from_text() helper method for policy mapping
+   - Updated _on_frame_policy_changed() to save frame_policy to settings
+
+### Key Features:
+- Source attributes now display in table with Name, Type, Value columns
+- Source attributes table supports multi-row selection
+- Frame policy selection is saved to settings.ini automatically
+- On startup, frame policy is restored from settings.ini
+- Frame policy combo box displays correct option based on saved setting
+
+### Testing Results
+- MainWindow creates successfully with source_attribute_table ✓
+- source_attribute_table uses AttributeTableModel ✓
+- Settings frame_policy persistence works: get/set from settings.ini ✓
+- Frame policy loads correctly on MainWindow startup ✓
+- Source attributes display: aperture, PixelAspectRatio, DateTime with values ✓
+- Multi-row selection and transfer to output working ✓
+
+### Status: COMPLETE
+Both improvements have been successfully implemented and tested.

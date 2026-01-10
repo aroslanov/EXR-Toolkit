@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QFileDialog,
     QListView,
+    QTableView,
     QComboBox,
 )
 from PySide6.QtCore import Qt
@@ -46,7 +47,6 @@ from ..ui.models import (
     SequenceListModel,
     ChannelListModel,
     OutputChannelListModel,
-    AttributeListModel,
     AttributeTableModel,
 )
 from ..ui.widgets import AttributeEditor
@@ -71,7 +71,6 @@ class MainWindow(QMainWindow):
         self.seq_list_model = SequenceListModel()
         self.ch_list_model = ChannelListModel()
         self.out_ch_list_model = OutputChannelListModel()
-        self.attr_list_model = AttributeListModel()
         self.attr_table_model = AttributeTableModel()
 
         # Build UI
@@ -132,11 +131,15 @@ class MainWindow(QMainWindow):
         btn_add_to_output.clicked.connect(self._on_add_channel_to_output)
         layout.addWidget(btn_add_to_output)
 
-        layout.addWidget(QLabel("Attributes"))
-        self.attribute_list = QListView()
-        self.attribute_list.setModel(self.attr_list_model)
-        self.attribute_list.setSelectionMode(QListView.SelectionMode.MultiSelection)
-        layout.addWidget(self.attribute_list)
+        layout.addWidget(QLabel("Source Attributes"))
+        self.source_attribute_table = QTableView()
+        self.source_attribute_table.setModel(self.attr_table_model)
+        self.source_attribute_table.horizontalHeader().setStretchLastSection(True)
+        self.source_attribute_table.verticalHeader().setVisible(False)
+        from PySide6.QtWidgets import QAbstractItemView
+        self.source_attribute_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.source_attribute_table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        layout.addWidget(self.source_attribute_table)
 
         btn_add_attrs = QPushButton("Add Selected to Output Attributes")
         btn_add_attrs.clicked.connect(self._on_add_attributes_to_output)
@@ -334,11 +337,11 @@ class MainWindow(QMainWindow):
             channels = seq.static_probe.main_subimage.channels
             self.ch_list_model.set_channels(channels)
             
-            # Populate attributes list
+            # Populate attributes table
             attributes = []
             if seq.static_probe.main_subimage.attributes and seq.static_probe.main_subimage.attributes.attributes:
                 attributes = seq.static_probe.main_subimage.attributes.attributes
-            self.attr_list_model.set_attributes(attributes)
+            self.attr_table_model.set_attributes(attributes)
             
             self._append_log(f"[OK] Selected sequence: {seq.display_name} ({len(channels)} channels, {len(attributes)} attributes)")
 
@@ -396,15 +399,18 @@ class MainWindow(QMainWindow):
 
     def _on_add_attributes_to_output(self) -> None:
         """Handle 'Add Selected to Output Attributes' button."""
-        # Get all selected attribute indices (multi-select)
-        selected_indices = self.attribute_list.selectedIndexes()
+        # Get all selected attribute indices from table (multi-select)
+        selected_indices = self.source_attribute_table.selectedIndexes()
         if not selected_indices:
             self._append_log("[WARNING] Please select at least one attribute")
             return
 
+        # Get unique row indices
+        rows_to_add = set(idx.row() for idx in selected_indices)
+
         # Add each selected attribute to the attribute editor
-        for attr_index in selected_indices:
-            attr = self.attr_list_model.get_attribute(attr_index.row())
+        for row in rows_to_add:
+            attr = self.attr_table_model.get_attribute(row)
             if attr:
                 self.attr_editor.model.add_attribute(attr)
                 self._append_log(f"[OK] Added output attribute: {attr.name}")
@@ -446,14 +452,26 @@ class MainWindow(QMainWindow):
 
     def _on_frame_policy_changed(self, policy_text: str) -> None:
         """Handle frame policy selection."""
-        # Map display text to enum
+        policy = self._get_frame_policy_from_text(policy_text)
+        self.state.export_spec.frame_policy = policy
+        
+        # Save to settings
+        policy_reverse_map = {
+            "Stop at Shortest": "STOP_AT_SHORTEST",
+            "Hold Last Frame": "HOLD_LAST",
+            "Process Available": "PROCESS_AVAILABLE",
+        }
+        policy_name = policy_reverse_map.get(policy_text, "STOP_AT_SHORTEST")
+        self.settings.set_frame_policy(policy_name)
+
+    def _get_frame_policy_from_text(self, policy_text: str) -> FrameRangePolicy:
+        """Convert display text to FrameRangePolicy enum."""
         policy_map = {
             "Stop at Shortest": FrameRangePolicy.STOP_AT_SHORTEST,
             "Hold Last Frame": FrameRangePolicy.HOLD_LAST,
             "Process Available": FrameRangePolicy.PROCESS_AVAILABLE,
         }
-        policy = policy_map.get(policy_text, FrameRangePolicy.STOP_AT_SHORTEST)
-        self.state.export_spec.frame_policy = policy
+        return policy_map.get(policy_text, FrameRangePolicy.STOP_AT_SHORTEST)
 
     # ========== Export ==========
 
@@ -600,6 +618,19 @@ class MainWindow(QMainWindow):
         idx = self.compression_combo.findText(saved_compression)
         if idx >= 0:
             self.compression_combo.setCurrentIndex(idx)
+
+        # Load frame policy setting
+        saved_frame_policy = self.settings.get_frame_policy()
+        policy_map_reverse = {
+            "STOP_AT_SHORTEST": "Stop at Shortest",
+            "HOLD_LAST": "Hold Last Frame",
+            "PROCESS_AVAILABLE": "Process Available",
+        }
+        policy_text = policy_map_reverse.get(saved_frame_policy, "Stop at Shortest")
+        idx = self.frame_policy_combo.findText(policy_text)
+        if idx >= 0:
+            self.frame_policy_combo.setCurrentIndex(idx)
+            self.state.export_spec.frame_policy = self._get_frame_policy_from_text(policy_text)
 
         # Load output directory
         saved_output_dir = self.settings.get_output_dir()

@@ -20,6 +20,7 @@ class Settings:
     KEY_INPUT_DIR = "last_input_dir"
     KEY_OUTPUT_DIR = "last_output_dir"
     KEY_COMPRESSION = "exr_compression"
+    KEY_FRAME_POLICY = "frame_policy"
 
     def __init__(self):
         """Initialize settings from file or create defaults."""
@@ -36,6 +37,7 @@ class Settings:
             self.config.set(self.SECTION, self.KEY_INPUT_DIR, "")
             self.config.set(self.SECTION, self.KEY_OUTPUT_DIR, "")
             self.config.set(self.SECTION, self.KEY_COMPRESSION, "zip")
+            self.config.set(self.SECTION, self.KEY_FRAME_POLICY, "STOP_AT_SHORTEST")
             self._save()
 
     def _save(self) -> None:
@@ -86,4 +88,18 @@ class Settings:
         if not self.config.has_section(self.SECTION):
             self.config.add_section(self.SECTION)
         self.config.set(self.SECTION, self.KEY_COMPRESSION, compression)
+        self._save()
+
+    def get_frame_policy(self) -> str:
+        """Get last frame policy setting (default: 'STOP_AT_SHORTEST')."""
+        try:
+            return self.config.get(self.SECTION, self.KEY_FRAME_POLICY)
+        except:
+            return "STOP_AT_SHORTEST"
+
+    def set_frame_policy(self, policy: str) -> None:
+        """Set and save frame policy setting."""
+        if not self.config.has_section(self.SECTION):
+            self.config.add_section(self.SECTION)
+        self.config.set(self.SECTION, self.KEY_FRAME_POLICY, policy)
         self._save()
