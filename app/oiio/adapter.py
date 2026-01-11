@@ -193,6 +193,31 @@ class OiioAdapter:
         )
 
     @staticmethod
+    def get_compression_from_probe(probe: FileProbe, subimage_idx: int = 0) -> Optional[str]:
+        """
+        Extract compression attribute from a probed file.
+        Returns compression name (e.g., 'zip', 'piz', 'dwab') or None if not found.
+        """
+        if not probe or subimage_idx >= len(probe.subimages):
+            return None
+        
+        subimage = probe.subimages[subimage_idx]
+        compression_attr = subimage.attributes.get_by_name("compression")
+        
+        if compression_attr:
+            # Convert value to string (may be stored as int or string in OIIO)
+            compression_value = compression_attr.value
+            if isinstance(compression_value, str):
+                return compression_value
+            # Some OIIO versions return int codes, try to convert
+            try:
+                return str(compression_value)
+            except Exception:
+                pass
+        
+        return None
+
+    @staticmethod
     def get_oiio_version() -> str:
         """Return OIIO version string."""
         try:

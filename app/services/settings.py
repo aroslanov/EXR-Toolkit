@@ -21,6 +21,7 @@ class Settings:
     KEY_OUTPUT_DIR = "last_output_dir"
     KEY_COMPRESSION = "exr_compression"
     KEY_FRAME_POLICY = "frame_policy"
+    KEY_COMPRESSION_POLICY = "compression_policy"
 
     def __init__(self):
         """Initialize settings from file or create defaults."""
@@ -38,6 +39,7 @@ class Settings:
             self.config.set(self.SECTION, self.KEY_OUTPUT_DIR, "")
             self.config.set(self.SECTION, self.KEY_COMPRESSION, "zip")
             self.config.set(self.SECTION, self.KEY_FRAME_POLICY, "STOP_AT_SHORTEST")
+            self.config.set(self.SECTION, self.KEY_COMPRESSION_POLICY, "skip")
             self._save()
 
     def _save(self) -> None:
@@ -102,4 +104,27 @@ class Settings:
         if not self.config.has_section(self.SECTION):
             self.config.add_section(self.SECTION)
         self.config.set(self.SECTION, self.KEY_FRAME_POLICY, policy)
+        self._save()
+
+    def get_compression_policy(self) -> str:
+        """Get compression policy setting (default: 'skip').
+        
+        Values:
+        - 'skip': Skip recompression when input compression matches target (default)
+        - 'always': Always recompress regardless of input compression
+        """
+        try:
+            return self.config.get(self.SECTION, self.KEY_COMPRESSION_POLICY)
+        except:
+            return "skip"
+
+    def set_compression_policy(self, policy: str) -> None:
+        """Set and save compression policy setting.
+        
+        Args:
+            policy: 'skip' or 'always'
+        """
+        if not self.config.has_section(self.SECTION):
+            self.config.add_section(self.SECTION)
+        self.config.set(self.SECTION, self.KEY_COMPRESSION_POLICY, policy)
         self._save()

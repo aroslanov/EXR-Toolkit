@@ -191,14 +191,50 @@ class MainWindow(QMainWindow):
         options_layout.addWidget(QLabel("Compression:"))
         self.compression_combo = QComboBox()
         self.compression_combo.addItems(["none", "rle", "zip", "zips", "piz", "pxr24", "b44", "b44a", "dwaa", "dwab"])
+        self.compression_combo.setToolTip(
+            "Select compression method for output EXR files:\n"
+            "  • none: Uncompressed (largest file size)\n"
+            "  • rle: Run-length encoding (lossless, moderate compression)\n"
+            "  • zip: ZIP compression (lossless, good for noise)\n"
+            "  • zips: ZIP single-scanline (less memory)\n"
+            "  • piz: PIZ wavelet (lossless, best quality/compression)\n"
+            "  • pxr24: PXR24 (lossless, 24-bit precision)\n"
+            "  • b44: B44 (lossy, medium compression)\n"
+            "  • b44a: B44A (lossy with alpha, improved)\n"
+            "  • dwaa: DWAA (lossy, DCT-based, good speed)\n"
+            "  • dwab: DWAB (lossy, DCT-based, better compression)"
+        )
         self.compression_combo.currentTextChanged.connect(self._on_compression_changed)
         options_layout.addWidget(self.compression_combo)
         
         options_layout.addWidget(QLabel("Frame Policy:"))
         self.frame_policy_combo = QComboBox()
         self.frame_policy_combo.addItems(["Stop at Shortest", "Hold Last Frame", "Process Available"])
+        self.frame_policy_combo.setToolTip(
+            "Define behavior when input sequences have different lengths:\n"
+            "  • Stop at Shortest: Export only frames present in all sequences (safe)\n"
+            "  • Hold Last Frame: Extend shorter sequences using their last frame\n"
+            "  • Process Available: Export all available frames (may have gaps)"
+        )
         self.frame_policy_combo.currentTextChanged.connect(self._on_frame_policy_changed)
         options_layout.addWidget(self.frame_policy_combo)
+
+        options_layout.addWidget(QLabel("Compression Policy:"))
+        self.compression_policy_combo = QComboBox()
+        self.compression_policy_combo.addItem("Skip matching compression for single input(default)", "skip")
+        self.compression_policy_combo.addItem("Always recompress", "always")
+        self.compression_policy_combo.setToolTip(
+            "Skip matching compression for single input: Fast optimization for single-source exports with no channel modifications.\n"
+            "Only works when:\n"
+            "  • Exporting from a single input sequence\n"
+            "  • No channels are added, removed, or renamed\n"
+            "  • Useful for attribute editing workflows\n\n"
+            "Always recompress: Standard export path for multi-source composites or channel modifications."
+        )
+        self.compression_policy_combo.currentIndexChanged.connect(
+            self._on_compression_policy_changed
+        )
+        options_layout.addWidget(self.compression_policy_combo)
         
         options_layout.addStretch()
         tabs.addTab(options_widget, "Options")
@@ -632,6 +668,13 @@ class MainWindow(QMainWindow):
             self.state.export_spec.frame_range = (in_frame, out_frame)
             self._append_log(f"[OK] Frame range set: {in_frame} to {out_frame}")
 
+    def _on_compression_policy_changed(self, index: int) -> None:
+        """Handle compression policy selection change."""
+        policy = self.compression_policy_combo.currentData()
+        self.settings.set_compression_policy(policy)
+        policy_text = self.compression_policy_combo.itemText(index)
+        self._append_log(f"[OK] Compression policy set to: {policy_text}")
+
     # ========== Export ==========
 
     def _on_export_button_clicked(self) -> None:
@@ -685,7 +728,11 @@ class MainWindow(QMainWindow):
             "background-color: #f44336; color: white; font-weight: bold; font-size: 14px;"
         )
         
-        self.export_manager.start_export(export_spec, self.state.sequences)
+        # Get compression policy
+        compression_policy = self.compression_policy_combo.currentData()
+        self._append_log(f"[DEBUG] Compression policy selected: {compression_policy}")
+        
+        self.export_manager.start_export(export_spec, self.state.sequences, compression_policy)
 
     def _on_export_progress(self, percent: int, message: str) -> None:
         """Handle export progress."""
@@ -847,6 +894,19 @@ class MainWindow(QMainWindow):
         if idx >= 0:
             self.frame_policy_combo.setCurrentIndex(idx)
             self.state.export_spec.frame_policy = self._get_frame_policy_from_text(policy_text)
+
+        # Load compression policy setting
+        saved_compression_policy = self.settings.get_compression_policy()
+        self._append_log(f"[SETTINGS] Loaded compression policy: {saved_compression_policy}")
+        idx = self.compression_policy_combo.findData(saved_compression_policy)
+        self._append_log(f"[SETTINGS] Found compression policy at index: {idx}")
+        if idx >= 0:
+            self.compression_policy_combo.setCurrentIndex(idx)
+            self._append_log(f"[SETTINGS] Set compression policy combo to index {idx}")
+        else:
+            # Default to 'skip' if not found
+            self.compression_policy_combo.setCurrentIndex(0)
+            self._append_log(f"[SETTINGS] Compression policy not found, defaulting to index 0 (skip)")
 
         # Load output directory
         saved_output_dir = self.settings.get_output_dir()

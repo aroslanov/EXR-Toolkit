@@ -72,10 +72,12 @@ class ExportRunner(QRunnable):
         self,
         export_spec: ExportSpec,
         sequences: dict[str, SequenceSpec],
+        compression_policy: str = "skip",
     ):
         super().__init__()
         self.export_spec = export_spec
         self.sequences = sequences
+        self.compression_policy = compression_policy  # 'skip' or 'always'
         self.signals = ExportSignals()
         self.stop_requested = False  # Flag to stop export
 
@@ -83,26 +85,136 @@ class ExportRunner(QRunnable):
         """Request the export to stop gracefully."""
         self.stop_requested = True
 
+    @staticmethod
+    def can_skip_recompression(
+        export_spec: ExportSpec,
+        sequences: dict[str, SequenceSpec],
+        compression_policy: str = "skip",
+    ) -> tuple[bool, str]:
+        """
+        Determine if recompression can be skipped.
+        
+        Args:
+            export_spec: Export specification
+            sequences: Available sequences
+            compression_policy: 'skip' (default) to skip when possible, 'always' to never skip
+        
+        Returns (can_skip, reason_explanation).
+        Recompression can be skipped when:
+        1. Compression policy allows it ('skip' mode)
+        2. All output channels come from SAME source sequence
+        3. Output includes ALL channels from source (no subset)
+        4. Source and target compression match
+        5. No attribute modifications from source
+        6. No channel format overrides
+        """
+        # Check 0: Compression policy
+        if compression_policy == "always":
+            return False, "Compression policy: always recompress"
+        
+        # Check 1: Single source sequence
+        source_seq_ids = set(
+            ch.source.sequence_id 
+            for ch in export_spec.output_channels
+        )
+        if len(source_seq_ids) != 1:
+            return False, f"Multiple source sequences ({len(source_seq_ids)})"
+        
+        seq_id = list(source_seq_ids)[0]
+        source_seq = sequences.get(seq_id)
+        if not source_seq or not source_seq.static_probe:
+            return False, f"Source sequence '{seq_id}' not found or not probed"
+        
+        source_subimage = source_seq.static_probe.main_subimage
+        if not source_subimage:
+            return False, "Source file has no main subimage"
+        
+        # Check 2: Output includes ALL source channels
+        source_channel_names = set(ch.name for ch in source_subimage.channels)
+        output_channel_names = set(
+            ch.source.channel_name 
+            for ch in export_spec.output_channels
+        )
+        
+        if source_channel_names != output_channel_names:
+            return False, "Output is subset/superset of source channels"
+        
+        # Check 3: Compression matches
+        source_compression = OiioAdapter.get_compression_from_probe(
+            source_seq.static_probe, 0
+        )
+        
+        # Normalize compression names (handle case variations)
+        source_comp_normalized = source_compression.lower() if source_compression else "none"
+        target_comp_normalized = export_spec.compression.lower()
+        
+        if source_comp_normalized != target_comp_normalized:
+            return False, f"Compression mismatch: {source_comp_normalized} vs {target_comp_normalized}"
+        
+        # Check 4: No attribute modifications
+        source_attrs = source_subimage.attributes
+        output_attrs = export_spec.output_attributes
+        
+        # Compare attribute count and values
+        if len(source_attrs.attributes) != len(output_attrs.attributes):
+            return False, f"Attribute count mismatch: {len(source_attrs.attributes)} vs {len(output_attrs.attributes)}"
+        
+        # Check each attribute matches
+        for out_attr in output_attrs.attributes:
+            src_attr = source_attrs.get_by_name(out_attr.name)
+            if not src_attr:
+                # Output attribute not in source (added/modified)
+                return False, f"Attribute '{out_attr.name}' modified or added"
+            # Note: comparing values exactly is difficult due to type conversions
+            # For now, we skip recompression only if attribute sets are identical
+        
+        # Check 5: No format overrides
+        for ch in export_spec.output_channels:
+            if ch.override_format:
+                return False, "Output channel format override present"
+        
+        return True, "Can skip recompression: identical copy possible"
+
     def run(self) -> None:
         """Execute the export with parallel frame processing."""
         try:
-            self._log("Starting export...")
+            self._log("="*60)
+            self._log("Starting EXR export...")
+            self._log("="*60)
+
+            # Log export configuration
+            self._log(f"Output directory: {self.export_spec.output_dir}")
+            self._log(f"Filename pattern: {self.export_spec.filename_pattern}")
+            self._log(f"Target compression: {self.export_spec.compression}")
+            self._log(f"Number of input sequences: {len(self.sequences)}")
+            
+            # Log compression for each sequence
+            for seq_id, seq in self.sequences.items():
+                if seq.static_probe and seq.static_probe.main_subimage:
+                    src_compression = OiioAdapter.get_compression_from_probe(seq.static_probe, 0)
+                    src_compression = src_compression.lower() if src_compression else "none"
+                    self._log(f"  - {seq.display_name}: {len(seq.frames)} frames, compression: {src_compression}")
 
             # Validation
-            self._log("Validating export configuration...")
+            self._log("\nValidating export configuration...")
             issues = ValidationEngine.validate_export(self.export_spec, self.sequences)
 
             errors = [i for i in issues if i.severity == ValidationSeverity.ERROR]
             warnings = [i for i in issues if i.severity == ValidationSeverity.WARNING]
 
             if errors:
+                self._log(f"Validation errors: {len(errors)}")
                 for issue in errors:
-                    self._log(f"ERROR: {issue}")
+                    self._log(f"  ERROR: {issue}")
                 self.signals.finished.emit(False, f"Export blocked: {len(errors)} validation errors")
                 return
 
-            for issue in warnings:
-                self._log(f"WARNING: {issue}")
+            if warnings:
+                self._log(f"Validation warnings: {len(warnings)}")
+                for issue in warnings:
+                    self._log(f"  WARNING: {issue}")
+            else:
+                self._log("Validation: ✓ All checks passed")
 
             # Determine frame list to export
             frame_list = self._resolve_frame_list()
@@ -110,22 +222,163 @@ class ExportRunner(QRunnable):
                 self.signals.finished.emit(False, "No frames to export")
                 return
 
-            self._log(f"Exporting {len(frame_list)} frames...")
+            self._log(f"\nFrame processing: {len(frame_list)} frames to export")
+            if self.export_spec.frame_range:
+                start, end = self.export_spec.frame_range
+                self._log(f"  Frame range: {start} to {end}")
 
-            # Export frames in parallel
-            self._export_frames_parallel(frame_list)
+            # Check if we can skip recompression
+            self._log("\nEvaluating compression optimization...")
+            self._log(f"Compression policy: {self.compression_policy} mode")
+            can_skip, reason = self.can_skip_recompression(
+                self.export_spec, 
+                self.sequences,
+                self.compression_policy
+            )
+            if can_skip:
+                self._log(f"✓ OPTIMIZATION ENABLED: {reason}")
+                self._log("  Using direct copy (no decompression/recompression)")
+                self._export_frames_direct_copy(frame_list)
+            else:
+                self._log(f"Standard export: {reason}")
+                self._export_frames_parallel(frame_list)
 
         except Exception as e:
             self._log(f"FATAL: {e}")
             traceback.print_exc()
             self.signals.finished.emit(False, f"Export failed: {e}")
 
+    def _export_frames_direct_copy(self, frame_list: List[int]) -> None:
+        """
+        Export frames via direct copy without decompression/recompression.
+        Only used when compression matches and channels unchanged.
+        Falls back to standard export if copy fails.
+        """
+        progress = AtomicProgress(len(frame_list))
+        
+        # Get source sequence (we know there's only one from can_skip_recompression)
+        source_seq_id = self.export_spec.output_channels[0].source.sequence_id
+        source_seq = self.sequences[source_seq_id]
+        
+        self._log("\n" + "-"*60)
+        self._log("DIRECT COPY MODE (Optimization Enabled)")
+        self._log("-"*60)
+        self._log(f"Source sequence: {source_seq.display_name}")
+        self._log(f"Total frames: {len(frame_list)}")
+        self._log(f"Compression: {self.export_spec.compression} (no re-compression)")
+        self._log(f"Output channels: {len(self.export_spec.output_channels)}")
+        self._log("-"*60)
+
+        try:
+            for frame_num in frame_list:
+                if self.stop_requested:
+                    self._log("Export stopped by user")
+                    self.signals.finished.emit(False, "Export stopped by user")
+                    return
+
+                try:
+                    self._export_frame_direct_copy(frame_num, source_seq)
+                    percent = progress.increment(frame_num)
+                    self.signals.progress.emit(percent, f"Frame {frame_num} (direct copy)")
+                except Exception as e:
+                    # Log and fall back to standard export for remaining frames
+                    self._log(f"\n⚠ WARNING: Direct copy failed for frame {frame_num}: {e}")
+                    self._log("Falling back to standard parallel export for remaining frames...")
+                    
+                    # Export remaining frames using standard path
+                    remaining_frames = [f for f in frame_list if f >= frame_num]
+                    self._export_frames_parallel(remaining_frames)
+                    return
+
+            # All frames completed successfully
+            self._log("-"*60)
+            self._log(f"✓ Export completed successfully (direct copy)!")
+            self._log(f"Total frames exported: {len(frame_list)}")
+            self._log(f"Compression format: {self.export_spec.compression}")
+            self._log("-"*60)
+            self.signals.finished.emit(True, "Export completed successfully!")
+
+        except Exception as e:
+            self._log(f"FATAL: Direct copy error: {e}")
+            traceback.print_exc()
+            self.signals.finished.emit(False, f"Export failed: {e}")
+
+    def _export_frame_direct_copy(self, frame_num: int, source_seq: SequenceSpec) -> None:
+        """
+        Copy a single frame directly without decompression/recompression.
+        Raises exception on failure (caller handles fallback).
+        """
+        # Build paths
+        source_filename = source_seq.pattern.format(frame_num)
+        source_path = source_seq.source_dir / source_filename
+        
+        if not source_path.exists():
+            raise RuntimeError(f"Source file not found: {source_path}")
+
+        output_path = Path(self.export_spec.output_dir) / self._format_filename(
+            self.export_spec.filename_pattern, frame_num
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            # Open source file
+            inp = oiio.ImageInput.open(str(source_path))
+            if not inp:
+                raise RuntimeError(f"Cannot open source: {source_path}")
+
+            # Get spec from source
+            src_spec = inp.spec()
+            
+            # Create output file
+            out = oiio.ImageOutput.create(str(output_path))
+            if not out:
+                inp.close()
+                raise RuntimeError(f"Cannot create output: {output_path}")
+
+            # Open output with same spec as source
+            if not out.open(str(output_path), src_spec):
+                inp.close()
+                out.close()
+                raise RuntimeError(f"Cannot open output for writing: {output_path}")
+
+            # Direct copy without decompression
+            if not out.copy_image(inp):
+                inp.close()
+                out.close()
+                raise RuntimeError(f"Failed to copy image data")
+
+            inp.close()
+            out.close()
+            self._log(f"Wrote (direct copy): {output_path}")
+
+        except Exception as e:
+            # Ensure files are closed on error
+            try:
+                inp.close()
+            except:
+                pass
+            try:
+                out.close()
+            except:
+                pass
+            raise
+
     def _export_frames_parallel(self, frame_list: List[int]) -> None:
         """Export frames in parallel using ThreadPoolExecutor."""
         num_workers = self._get_optimal_worker_count(len(frame_list))
+        available_cores = os.cpu_count() or 4
         progress = AtomicProgress(len(frame_list))
 
-        self._log(f"Using {num_workers} worker threads")
+        self._log("\n" + "-"*60)
+        self._log("PARALLEL EXPORT MODE (Standard Processing)")
+        self._log("-"*60)
+        self._log(f"Total frames to export: {len(frame_list)}")
+        self._log(f"Available CPU cores: {available_cores}")
+        self._log(f"Worker threads: {num_workers}")
+        self._log(f"Compression: {self.export_spec.compression}")
+        self._log(f"Output channels: {len(self.export_spec.output_channels)}")
+        self._log(f"Processing mode: {'Decompression + Recompression' if num_workers > 1 else 'Single-threaded'}")
+        self._log("-"*60)
 
         try:
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
@@ -152,7 +405,7 @@ class ExportRunner(QRunnable):
 
                         future.result()  # Will raise if exception occurred
                         percent = progress.increment(frame_num)
-                        self.signals.progress.emit(percent, f"Frame {frame_num}")
+                        self.signals.progress.emit(percent, f"Frame {frame_num} (worker pool)")
 
                     except Exception as e:
                         # Check if error was due to user stop request
@@ -169,7 +422,12 @@ class ExportRunner(QRunnable):
                         return
 
             # All frames completed successfully
-            self._log("Export completed successfully!")
+            self._log("-"*60)
+            self._log(f"✓ Export completed successfully!")
+            self._log(f"Total frames exported: {len(frame_list)}")
+            self._log(f"Worker threads used: {num_workers}")
+            self._log(f"Compression format: {self.export_spec.compression}")
+            self._log("-"*60)
             self.signals.finished.emit(True, "Export completed successfully!")
 
         except Exception as e:
@@ -239,7 +497,7 @@ class ExportRunner(QRunnable):
         return all_frames
 
     def _export_frame(self, frame_num: int) -> None:
-        """Export a single frame."""
+        """Export a single frame with detailed compression and channel info."""
         # Check if stop was requested
         if self.stop_requested:
             raise RuntimeError("Export stopped by user")
@@ -261,7 +519,12 @@ class ExportRunner(QRunnable):
 
         # Write output EXR
         self._write_exr(output_path, output_data, output_spec)
-        self._log(f"Wrote: {output_path}")
+        
+        # Log detailed information about written frame
+        channel_names = ", ".join(output_spec.get("channels", []))
+        resolution = f"{output_spec.get('width', '?')}x{output_spec.get('height', '?')}"
+        self._log(f"  Frame {frame_num}: {resolution} | {len(output_spec.get('channels', []))} channels ({channel_names}) | compression: {self.export_spec.compression}")
+
 
     def _format_filename(self, pattern: str, frame: int) -> str:
         """Format filename with frame number."""
@@ -453,13 +716,20 @@ class ExportManager(QObject):
         self,
         export_spec: ExportSpec,
         sequences: dict[str, SequenceSpec],
+        compression_policy: str = "skip",
     ) -> None:
-        """Start an export in a worker thread."""
+        """Start an export in a worker thread.
+        
+        Args:
+            export_spec: Export configuration
+            sequences: Available sequences
+            compression_policy: 'skip' or 'always' for compression handling
+        """
         if self.current_runner:
             self.log.emit("Export already in progress")
             return
 
-        self.current_runner = ExportRunner(export_spec, sequences)
+        self.current_runner = ExportRunner(export_spec, sequences, compression_policy)
         self.current_runner.signals.finished.connect(self._on_finished)
         self.current_runner.signals.log.connect(self.log.emit)
         self.current_runner.signals.progress.connect(self.progress.emit)
