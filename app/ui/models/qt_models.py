@@ -33,6 +33,12 @@ class SequenceListModel(QAbstractListModel):
         self.sequences.append(seq)
         self.endInsertRows()
 
+    def clear_sequences(self) -> None:
+        """Clear all sequences."""
+        self.beginResetModel()
+        self.sequences.clear()
+        self.endResetModel()
+
     def remove_at(self, index: int) -> bool:
         """Remove sequence at index."""
         if 0 <= index < len(self.sequences):
@@ -131,6 +137,12 @@ class OutputChannelListModel(QAbstractListModel):
         self.beginInsertRows(QModelIndex(), len(self.channels), len(self.channels))
         self.channels.append(channel)
         self.endInsertRows()
+
+    def clear_channels(self) -> None:
+        """Clear all channels."""
+        self.beginResetModel()
+        self.channels.clear()
+        self.endResetModel()
 
     def remove_at(self, index: int) -> bool:
         """Remove channel at index."""

@@ -19,6 +19,7 @@ class Settings:
     SECTION = "preferences"
     KEY_INPUT_DIR = "last_input_dir"
     KEY_OUTPUT_DIR = "last_output_dir"
+    KEY_PROJECT_DIR = "last_project_dir"
     KEY_COMPRESSION = "exr_compression"
     KEY_FRAME_POLICY = "frame_policy"
     KEY_COMPRESSION_POLICY = "compression_policy"
@@ -37,6 +38,7 @@ class Settings:
             self.config.add_section(self.SECTION)
             self.config.set(self.SECTION, self.KEY_INPUT_DIR, "")
             self.config.set(self.SECTION, self.KEY_OUTPUT_DIR, "")
+            self.config.set(self.SECTION, self.KEY_PROJECT_DIR, "")
             self.config.set(self.SECTION, self.KEY_COMPRESSION, "zip")
             self.config.set(self.SECTION, self.KEY_FRAME_POLICY, "STOP_AT_SHORTEST")
             self.config.set(self.SECTION, self.KEY_COMPRESSION_POLICY, "skip")
@@ -76,6 +78,21 @@ class Settings:
         if not self.config.has_section(self.SECTION):
             self.config.add_section(self.SECTION)
         self.config.set(self.SECTION, self.KEY_OUTPUT_DIR, path)
+        self._save()
+
+    def get_project_dir(self) -> Optional[str]:
+        """Get last project directory."""
+        try:
+            val = self.config.get(self.SECTION, self.KEY_PROJECT_DIR)
+            return val if val else None
+        except:
+            return None
+
+    def set_project_dir(self, path: str) -> None:
+        """Set and save last project directory."""
+        if not self.config.has_section(self.SECTION):
+            self.config.add_section(self.SECTION)
+        self.config.set(self.SECTION, self.KEY_PROJECT_DIR, path)
         self._save()
 
     def get_compression(self) -> str:

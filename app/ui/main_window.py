@@ -44,7 +44,7 @@ from ..core import (
 )
 from ..oiio import OiioAdapter
 from ..core.sequence import SequenceDiscovery
-from ..services import ProjectState, ExportManager
+from ..services import ProjectState, ExportManager, ProjectSerializer
 from ..services.settings import Settings
 from ..ui.models import (
     SequenceListModel,
@@ -235,6 +235,18 @@ class MainWindow(QMainWindow):
             self._on_compression_policy_changed
         )
         options_layout.addWidget(self.compression_policy_combo)
+        
+        # Project save/load buttons
+        options_layout.addWidget(QLabel("Project Management:"))
+        project_btn_layout = QHBoxLayout()
+        btn_save_project = QPushButton("Save Project")
+        btn_save_project.clicked.connect(self._on_save_project)
+        btn_load_project = QPushButton("Load Project")
+        btn_load_project.clicked.connect(self._on_load_project)
+        project_btn_layout.addWidget(btn_save_project)
+        project_btn_layout.addWidget(btn_load_project)
+        project_btn_layout.addStretch()
+        options_layout.addLayout(project_btn_layout)
         
         options_layout.addStretch()
         tabs.addTab(options_widget, "Options")
@@ -449,20 +461,34 @@ class MainWindow(QMainWindow):
     def _on_sequence_selected(self, index) -> None:
         """Handle sequence selection."""
         seq = self.seq_list_model.get_sequence(index.row())
-        if seq and seq.static_probe and seq.static_probe.main_subimage:
-            channels = seq.static_probe.main_subimage.channels
-            self.ch_list_model.set_channels(channels)
-            
-            # Populate attributes table
-            attributes = []
-            if seq.static_probe.main_subimage.attributes and seq.static_probe.main_subimage.attributes.attributes:
-                attributes = seq.static_probe.main_subimage.attributes.attributes
-            self.attr_table_model.set_attributes(attributes)
-            
-            # Update max frame count from longest sequence
-            self._update_max_frame_count()
-            
-            self._append_log(f"[OK] Selected sequence: {seq.display_name} ({len(channels)} channels, {len(attributes)} attributes)")
+        if not seq:
+            return
+        
+        # Check if we have probe data
+        if not seq.static_probe or not seq.static_probe.main_subimage:
+            # No probe data - this can happen after loading a project
+            self.ch_list_model.set_channels([])
+            self.attr_table_model.set_attributes([])
+            self._append_log(
+                f"[INFO] Sequence '{seq.display_name}' has no metadata. "
+                f"Click 'Load Sequence' and select this sequence's directory to load metadata."
+            )
+            return
+        
+        # Probe data available - populate channels and attributes
+        channels = seq.static_probe.main_subimage.channels
+        self.ch_list_model.set_channels(channels)
+        
+        # Populate attributes table
+        attributes = []
+        if seq.static_probe.main_subimage.attributes and seq.static_probe.main_subimage.attributes.attributes:
+            attributes = seq.static_probe.main_subimage.attributes.attributes
+        self.attr_table_model.set_attributes(attributes)
+        
+        # Update max frame count from longest sequence
+        self._update_max_frame_count()
+        
+        self._append_log(f"[OK] Selected sequence: {seq.display_name} ({len(channels)} channels, {len(attributes)} attributes)")
 
     # ========== Output Channel Management ==========
 
@@ -936,3 +962,123 @@ class MainWindow(QMainWindow):
         )
         self.state.add_output_attribute(compression_attr)
         self.attr_editor.model.add_attribute(compression_attr)
+
+    # ========== Project Management ==========
+
+    def _on_save_project(self) -> None:
+        """Handle 'Save Project' button."""
+        initial_dir = self.settings.get_project_dir() or ""
+        file_path, ok = QFileDialog.getSaveFileName(
+            self,
+            "Save Project",
+            initial_dir,
+            "EXR Toolkit Project Files (*.exrproj);;All Files (*)",
+        )
+        
+        if not ok or not file_path:
+            return
+
+        try:
+            project_path = Path(file_path)
+            ProjectSerializer.save_to_file(self.state, project_path)
+            self.settings.set_project_dir(str(project_path.parent))
+            self._append_log(f"[OK] Project saved to: {project_path}")
+        except Exception as e:
+            self._append_log(f"[ERROR] Failed to save project: {e}")
+            QMessageBox.critical(self, "Save Error", f"Failed to save project:\n{e}")
+
+    def _on_load_project(self) -> None:
+        """Handle 'Load Project' button."""
+        initial_dir = self.settings.get_project_dir() or ""
+        file_path, ok = QFileDialog.getOpenFileName(
+            self,
+            "Load Project",
+            initial_dir,
+            "EXR Toolkit Project Files (*.exrproj);;All Files (*)",
+        )
+        
+        if not ok or not file_path:
+            return
+
+        try:
+            project_path = Path(file_path)
+            loaded_state = ProjectSerializer.load_from_file(project_path)
+            self.settings.set_project_dir(str(project_path.parent))
+            
+            # Clear current state
+            self.state.sequences.clear()
+            self.state.export_spec.output_channels.clear()
+            self.seq_list_model.clear_sequences()
+            self.out_ch_list_model.clear_channels()
+            self.ch_list_model.set_channels([])
+            
+            # Restore loaded state
+            self.state = loaded_state
+            
+            # Reload sequences into model (note: probes will be None, user should reload them)
+            for seq in self.state.list_sequences():
+                self.seq_list_model.add_sequence(seq)
+            
+            # Auto-probe sequences to restore metadata
+            self._append_log("[LOAD] Scanning source directories for file metadata...")
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
+            
+            probed_count = 0
+            for seq in self.state.list_sequences():
+                if not seq.source_dir.exists():
+                    self._append_log(f"[WARNING] Source directory not found: {seq.source_dir}")
+                    continue
+                
+                # Probe first frame to get metadata
+                if seq.frames:
+                    try:
+                        pattern = SequencePathPattern(seq.pattern.pattern)
+                        first_frame_path = str(seq.source_dir / pattern.format(seq.frames[0]))
+                        probe = OiioAdapter.probe_file(first_frame_path)
+                        if probe:
+                            seq.static_probe = probe
+                            probed_count += 1
+                            QApplication.processEvents()
+                    except Exception as e:
+                        self._append_log(f"[WARNING] Failed to probe {seq.display_name}: {e}")
+            
+            if probed_count > 0:
+                self._append_log(f"[OK] Restored metadata for {probed_count} sequence(s)")
+            
+            # Reload output channels into model
+            for ch in self.state.get_output_channels():
+                self.out_ch_list_model.add_channel(ch)
+            
+            # Reload export settings into UI
+            self.output_dir_edit.setText(self.state.get_output_dir())
+            self.filename_pattern_edit.setText(self.state.get_filename_pattern())
+            
+            compression = self.state.get_compression()
+            idx = self.compression_combo.findText(compression)
+            if idx >= 0:
+                self.compression_combo.setCurrentIndex(idx)
+            
+            frame_policy = self.state.export_spec.frame_policy
+            policy_map = {
+                FrameRangePolicy.STOP_AT_SHORTEST: "Stop at Shortest",
+                FrameRangePolicy.HOLD_LAST: "Hold Last Frame",
+                FrameRangePolicy.PROCESS_AVAILABLE: "Process Available",
+            }
+            policy_text = policy_map.get(frame_policy, "Stop at Shortest")
+            idx = self.frame_policy_combo.findText(policy_text)
+            if idx >= 0:
+                self.frame_policy_combo.setCurrentIndex(idx)
+            
+            # Reload attributes
+            self.attr_editor.set_attributes(self.state.get_output_attributes())
+            
+            # Update max frame count
+            self._update_max_frame_count()
+            
+            self._append_log(f"[OK] Project loaded from: {project_path}")
+            self._append_log(f"     Loaded {len(self.state.sequences)} sequence(s), "
+                            f"{len(self.state.get_output_channels())} output channel(s)")
+        except Exception as e:
+            self._append_log(f"[ERROR] Failed to load project: {e}")
+            QMessageBox.critical(self, "Load Error", f"Failed to load project:\n{e}")
