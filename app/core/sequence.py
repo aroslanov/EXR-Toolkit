@@ -72,12 +72,25 @@ class SequenceDiscovery:
             if Path(filename).suffix.lower() not in image_exts:
                 continue
             
-            # Match any sequence of digits (variable length)
-            match_digits = re.search(r'^(.+?)(\d+)(\..+?)$', filename)
+            # Extract frame number: search from right to find digits immediately before extension
+            # This handles cases like seq_1.0000.exr where 0000 (not 1) is the frame number
+            last_dot_idx = filename.rfind('.')
+            if last_dot_idx == -1:
+                continue
+            
+            # Look backwards from the dot to find the frame number
+            name_before_ext = filename[:last_dot_idx]
+            ext = filename[last_dot_idx:]
+            
+            # Find the rightmost sequence of digits before the extension
+            match_digits = re.search(r'(\d+)$', name_before_ext)
             
             if match_digits:
-                base, num_str, ext = match_digits.groups()
+                num_str = match_digits.group(1)
                 num_len = len(num_str)
+                
+                # Get the base (everything before the frame number)
+                base = name_before_ext[:match_digits.start()]
                 
                 # Generate pattern: %0Nd format (e.g., %05d for 5 digits)
                 pattern = f"{base}%0{num_len}d{ext}"
