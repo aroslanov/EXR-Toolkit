@@ -616,14 +616,21 @@ class MainWindow(QMainWindow):
     def _update_max_frame_count(self) -> None:
         """Update max frame count from all loaded sequences."""
         self.max_frame_count = 0
+        max_frame_number = 0  # Track highest frame NUMBER, not count
+        
         for seq in self.state.sequences.values():
             if seq.frames:
                 frame_count = len(seq.frames)
                 if frame_count > self.max_frame_count:
                     self.max_frame_count = frame_count
+                # Also track the actual highest frame number
+                actual_max = max(seq.frames)
+                if actual_max > max_frame_number:
+                    max_frame_number = actual_max
 
         # Update spinbox limits and values
-        max_val = max(0, self.max_frame_count - 1)
+        # Use the actual highest frame number, not count - 1
+        max_val = max_frame_number if self.max_frame_count > 0 else 0
         
         # Set spinbox maximum limits based on longest sequence
         self.in_frame_spinbox.setMaximum(max_val)
@@ -635,13 +642,13 @@ class MainWindow(QMainWindow):
             self.out_frame_spinbox.setValue(0)
             self.state.export_spec.frame_range = None
         else:
-            # Initialize frame range to full sequence range [0, max_val]
+            # Initialize frame range to full sequence range [0, max_frame_number]
             self.in_frame_spinbox.setValue(0)
             self.out_frame_spinbox.setValue(max_val)
             self.state.export_spec.frame_range = (0, max_val)
         
         self.max_frame_label.setText(f"(Max: {self.max_frame_count} frames)")
-        self._append_log(f"[OK] Frame range initialized: 0 to {max_val} ({self.max_frame_count} frames)")
+        self._append_log(f"[OK] Frame range initialized: 0 to {max_val} ({self.max_frame_count} frames) [Max frame number: {max_frame_number}]")
 
     def _on_in_frame_changed(self, value: int) -> None:
         """Handle in frame spinbox change."""

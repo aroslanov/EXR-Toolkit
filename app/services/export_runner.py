@@ -67,6 +67,9 @@ class AtomicProgress:
 
 class ExportRunner(QRunnable):
     """Runnable for export operations."""
+    
+    # Thread lock for OIIO operations (OIIO may not be thread-safe)
+    _oiio_lock = threading.Lock()
 
     def __init__(
         self,
@@ -182,6 +185,15 @@ class ExportRunner(QRunnable):
             self._log("Starting EXR export...")
             self._log("="*60)
 
+            # Ensure output directory exists before parallel export (avoid race conditions)
+            output_dir = Path(self.export_spec.output_dir)
+            try:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                self._log(f"[DEBUG] Output directory created/verified: {output_dir.resolve()}")
+            except Exception as e:
+                self.signals.finished.emit(False, f"Could not create output directory: {e}")
+                return
+
             # Log export configuration
             self._log(f"Output directory: {self.export_spec.output_dir}")
             self._log(f"Filename pattern: {self.export_spec.filename_pattern}")
@@ -226,6 +238,12 @@ class ExportRunner(QRunnable):
             if self.export_spec.frame_range:
                 start, end = self.export_spec.frame_range
                 self._log(f"  Frame range: {start} to {end}")
+            
+            # DEBUG: Show actual frame list summary
+            if len(frame_list) <= 20:
+                self._log(f"  Frames: {frame_list}")
+            else:
+                self._log(f"  Frames: {frame_list[:5]} ... {frame_list[-5:]} (showing first 5 and last 5)")
 
             # Check if we can skip recompression
             self._log("\nEvaluating compression optimization...")
@@ -264,7 +282,11 @@ class ExportRunner(QRunnable):
         self._log("DIRECT COPY MODE (Optimization Enabled)")
         self._log("-"*60)
         self._log(f"Source sequence: {source_seq.display_name}")
-        self._log(f"Total frames: {len(frame_list)}")
+        self._log(f"Total frames to process: {len(frame_list)}")
+        if len(frame_list) <= 20:
+            self._log(f"Frame list: {frame_list}")
+        else:
+            self._log(f"Frame list: {frame_list[:5]} ... {frame_list[-5:]} (first 5 and last 5)")
         self._log(f"Compression: {self.export_spec.compression} (no re-compression)")
         self._log(f"Output channels: {len(self.export_spec.output_channels)}")
         self._log("-"*60)
@@ -283,10 +305,12 @@ class ExportRunner(QRunnable):
                 except Exception as e:
                     # Log and fall back to standard export for remaining frames
                     self._log(f"\n⚠ WARNING: Direct copy failed for frame {frame_num}: {e}")
+                    self._log(f"[DETAILS] Error type: {type(e).__name__}")
                     self._log("Falling back to standard parallel export for remaining frames...")
                     
                     # Export remaining frames using standard path
                     remaining_frames = [f for f in frame_list if f >= frame_num]
+                    self._log(f"[DEBUG] Remaining frames to export: {len(remaining_frames)} frames (from frame {frame_num} onwards)")
                     self._export_frames_parallel(remaining_frames)
                     return
 
@@ -374,7 +398,12 @@ class ExportRunner(QRunnable):
         self._log("-"*60)
         self._log(f"Total frames to export: {len(frame_list)}")
         self._log(f"Available CPU cores: {available_cores}")
-        self._log(f"Worker threads: {num_workers}")
+        self._log(f"Frame-level worker threads: {num_workers}")
+        self._log(f"Channel-level parallelization: ADAPTIVE (memory-aware)")
+        self._log(f"  - Small frames (<5MP): up to 4 parallel channels")
+        self._log(f"  - Medium frames (5-10MP): up to 3 parallel channels")
+        self._log(f"  - Large frames (10-25MP): up to 2 parallel channels")
+        self._log(f"  - Very large frames (>25MP): sequential channel reading")
         self._log(f"Compression: {self.export_spec.compression}")
         self._log(f"Output channels: {len(self.export_spec.output_channels)}")
         self._log(f"Processing mode: {'Decompression + Recompression' if num_workers > 1 else 'Single-threaded'}")
@@ -508,7 +537,7 @@ class ExportRunner(QRunnable):
             pattern, frame_num
         )
 
-        # Read source channels and build output buffer
+        # Read source channels in parallel (optimized)
         output_data, output_spec = self._assemble_frame(frame_num)
         if output_data is None:
             raise RuntimeError(f"Failed to assemble frame {frame_num}")
@@ -523,7 +552,8 @@ class ExportRunner(QRunnable):
         # Log detailed information about written frame
         channel_names = ", ".join(output_spec.get("channels", []))
         resolution = f"{output_spec.get('width', '?')}x{output_spec.get('height', '?')}"
-        self._log(f"  Frame {frame_num}: {resolution} | {len(output_spec.get('channels', []))} channels ({channel_names}) | compression: {self.export_spec.compression}")
+        num_channels = len(output_spec.get('channels', []))
+        self._log(f"  Frame {frame_num}: {resolution} | {num_channels} channels (parallel read: {channel_names}) | compression: {self.export_spec.compression}")
 
 
     def _format_filename(self, pattern: str, frame: int) -> str:
@@ -537,6 +567,9 @@ class ExportRunner(QRunnable):
     def _assemble_frame(self, frame_num: int) -> tuple[Optional[np.ndarray], dict]:
         """
         Assemble output frame from selected input channels.
+        
+        Optimized to read channels in parallel from same source files.
+        Channels from different files are grouped and read in parallel batches.
 
         Returns (pixel_data, spec_dict) or (None, {}) if failed.
         """
@@ -559,37 +592,56 @@ class ExportRunner(QRunnable):
         n_output_channels = len(self.export_spec.output_channels)
         output_data = np.zeros((height, width, n_output_channels), dtype=np.float32)
 
-        # Fill output buffer
-        for out_idx, out_ch in enumerate(self.export_spec.output_channels):
-            # Check for stop request between channel reads
-            if self.stop_requested:
-                raise RuntimeError("Export stopped by user")
+        # Check for stop request before starting channel reads
+        if self.stop_requested:
+            raise RuntimeError("Export stopped by user")
 
+        # Group channels by source file for efficient parallel reading
+        channels_by_source = {}  # (sequence_id, frame_path) -> [(out_idx, channel_spec), ...]
+        
+        for out_idx, out_ch in enumerate(self.export_spec.output_channels):
             src_seq = self.sequences.get(out_ch.source.sequence_id)
             if not src_seq:
                 continue
 
-            # Get full frame path (source_dir + formatted filename)
+            # Get full frame path
             filename = src_seq.pattern.format(frame_num)
             frame_path = src_seq.source_dir / filename
             if not frame_path.exists():
                 self._log(f"Warning: Source file not found: {frame_path}")
                 continue
 
-            # Read source channel
+            key = (out_ch.source.sequence_id, str(frame_path))
+            if key not in channels_by_source:
+                channels_by_source[key] = []
+            channels_by_source[key].append((out_idx, out_ch))
+
+        # Read channels in parallel batches (channels from same file in parallel)
+        # For each source file, use ThreadPoolExecutor to read all channels from that file in parallel
+        for source_key, channel_list in channels_by_source.items():
+            if self.stop_requested:
+                raise RuntimeError("Export stopped by user")
+
+            seq_id, frame_path = source_key
+            
+            # Read all channels from this file in parallel (with memory-aware limits)
             try:
-                src_data = self._read_channel_from_file(
-                    str(frame_path),
-                    out_ch.source.channel_name,
-                    out_ch.source.subimage_index,
+                results = self._read_channels_parallel_from_file(
+                    frame_path,
+                    channel_list,
+                    frame_resolution=(width, height)
                 )
-                if src_data is not None:
-                    output_data[:, :, out_idx] = src_data
+                
+                # Populate output buffer with results
+                for (out_idx, out_ch), src_data in zip(channel_list, results):
+                    if src_data is not None:
+                        output_data[:, :, out_idx] = src_data
+                    
             except Exception as e:
                 # Suppress exception if stop was requested
                 if self.stop_requested:
                     raise RuntimeError("Export stopped by user")
-                self._log(f"Warning: Could not read {out_ch.source.channel_name}: {e}")
+                self._log(f"Warning: Could not read channels from {frame_path}: {e}")
 
         return output_data, {
             "width": width,
@@ -597,10 +649,145 @@ class ExportRunner(QRunnable):
             "channels": [ch.output_name for ch in self.export_spec.output_channels],
         }
 
+    def _read_channels_parallel_from_file(
+        self, filepath: str, channel_specs: List[tuple[int, any]], frame_resolution: tuple[int, int] = None
+    ) -> List[Optional[np.ndarray]]:
+        """
+        Read multiple channels from the same file with memory-aware parallelization.
+        
+        For large frames, automatically falls back to sequential reading to avoid
+        memory exhaustion from simultaneous large buffer allocations.
+        
+        Args:
+            filepath: Path to source file
+            channel_specs: List of (out_idx, channel_spec) tuples
+            frame_resolution: (width, height) tuple for memory estimation
+        
+        Returns:
+            List of numpy arrays in same order as channel_specs, or None for each failed read
+        """
+        if not channel_specs:
+            return []
+
+        results = [None] * len(channel_specs)
+        
+        # If only one channel, read directly without threading overhead
+        if len(channel_specs) == 1:
+            out_idx, out_ch = channel_specs[0]
+            try:
+                data = self._read_channel_from_file(
+                    filepath,
+                    out_ch.source.channel_name,
+                    out_ch.source.subimage_index,
+                )
+                results[0] = data
+            except Exception:
+                pass
+            return results
+
+        # Estimate memory usage per parallel read
+        # Each channel read = width × height × 4 bytes (float32)
+        num_workers = self._calculate_optimal_channel_workers(len(channel_specs), frame_resolution)
+        
+        if num_workers <= 1:
+            # Sequential reading for large frames
+            for idx, (out_idx, out_ch) in enumerate(channel_specs):
+                try:
+                    results[idx] = self._read_channel_from_file(
+                        filepath,
+                        out_ch.source.channel_name,
+                        out_ch.source.subimage_index,
+                    )
+                except Exception as e:
+                    if not self.stop_requested:
+                        pass  # Silently handle, will be logged elsewhere
+        else:
+            # Use ThreadPoolExecutor for parallel channel reads from same file
+            try:
+                with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                    futures = []
+                    
+                    for idx, (out_idx, out_ch) in enumerate(channel_specs):
+                        future = executor.submit(
+                            self._read_channel_from_file,
+                            filepath,
+                            out_ch.source.channel_name,
+                            out_ch.source.subimage_index,
+                        )
+                        futures.append((idx, future))
+                    
+                    # Collect results
+                    for idx, future in futures:
+                        try:
+                            results[idx] = future.result()
+                        except Exception as e:
+                            if not self.stop_requested:
+                                pass  # Silently handle
+            
+            except Exception as e:
+                # Fall back to sequential reading on any error
+                for idx, (out_idx, out_ch) in enumerate(channel_specs):
+                    try:
+                        results[idx] = self._read_channel_from_file(
+                            filepath,
+                            out_ch.source.channel_name,
+                            out_ch.source.subimage_index,
+                        )
+                    except Exception:
+                        pass
+
+        return results
+
+    def _calculate_optimal_channel_workers(self, num_channels: int, frame_resolution: tuple[int, int] = None) -> int:
+        """
+        Calculate optimal number of parallel channel readers based on memory constraints.
+        
+        For large frames, reduces parallelism to avoid memory exhaustion.
+        
+        Args:
+            num_channels: Number of channels to read
+            frame_resolution: (width, height) tuple or None
+        
+        Returns:
+            Number of worker threads (1 = sequential)
+        """
+        # Default resolution if not provided
+        if frame_resolution is None:
+            width, height = 2048, 1080
+        else:
+            width, height = frame_resolution
+        
+        # Estimate bytes per channel: width × height × 4 (float32)
+        bytes_per_channel = width * height * 4
+        
+        # Memory thresholds
+        # Large frame = > 10 million pixels (40+ MB per channel)
+        # Very large frame = > 25 million pixels (100+ MB per channel)
+        pixels = width * height
+        
+        if pixels > 25_000_000:
+            # Very large frames (> 100MB per channel) - sequential only
+            return 1
+        elif pixels > 10_000_000:
+            # Large frames (40-100MB per channel) - max 2 parallel
+            return min(2, num_channels)
+        elif pixels > 5_000_000:
+            # Medium frames (20-40MB per channel) - max 3 parallel
+            return min(3, num_channels)
+        else:
+            # Small frames - up to 4 parallel (original behavior)
+            return min(4, num_channels)
+
     def _read_channel_from_file(
         self, filepath: str, channel_name: str, subimage_index: int = 0
     ) -> Optional[np.ndarray]:
-        """Read a single channel from a file."""
+        """
+        Read a single channel from a file (thread-safe).
+        
+        This method is designed to be called from multiple threads reading
+        different channels from the same file. Each thread opens its own
+        file handle to avoid synchronization overhead.
+        """
         # Check for stop request before I/O
         if self.stop_requested:
             raise RuntimeError("Export stopped by user")
@@ -646,54 +833,84 @@ class ExportRunner(QRunnable):
             return None
 
         except Exception as e:
-            self._log(f"Error reading channel: {e}")
+            # Only log if not due to stop request
+            if not self.stop_requested:
+                self._log(f"Error reading channel: {e}")
             return None
 
     def _write_exr(self, output_path: Path, pixel_data: np.ndarray, spec_dict: dict) -> None:
-        """Write output EXR file."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Create output spec
-        out_spec = oiio.ImageSpec(
-            spec_dict["width"],
-            spec_dict["height"],
-            len(spec_dict["channels"]),
-            oiio.FLOAT,
-        )
-        out_spec.channelnames = spec_dict["channels"]
-
-        # Apply export attributes
-        for attr in self.export_spec.output_attributes.attributes:
-            try:
-                # Handle array/tuple attributes by converting to string
-                value = attr.value
-                if isinstance(value, (tuple, list)):
-                    # Convert tuple/list to space-separated string
-                    value = " ".join(str(v) for v in value)
-                out_spec.attribute(attr.name, value)
-            except Exception as e:
-                self._log(f"Warning: Could not set attribute '{attr.name}': {e}")
-
-        # Set compression
+        """Write output EXR file (thread-safe).
+        
+        Uses a lock to serialize OIIO operations since OIIO may not be thread-safe.
+        """
+        out = None
         try:
-            out_spec.attribute("compression", self.export_spec.compression)
+            # Convert to absolute path to avoid any issues with relative paths
+            output_path = Path(output_path).resolve()
+            output_dir = output_path.parent
+            
+            # Verify directory exists (should have been created by run())
+            if not output_dir.exists():
+                raise RuntimeError(f"Output directory missing: {output_dir}")
+
+            # Create output spec
+            out_spec = oiio.ImageSpec(
+                spec_dict["width"],
+                spec_dict["height"],
+                len(spec_dict["channels"]),
+                oiio.FLOAT,
+            )
+            out_spec.channelnames = spec_dict["channels"]
+
+            # Apply export attributes (silently skip on error)
+            for attr in self.export_spec.output_attributes.attributes:
+                try:
+                    value = attr.value
+                    if isinstance(value, (tuple, list)):
+                        value = " ".join(str(v) for v in value)
+                    out_spec.attribute(attr.name, value)
+                except Exception:
+                    pass
+
+            # Set compression (silently skip on error)
+            try:
+                out_spec.attribute("compression", self.export_spec.compression)
+            except Exception:
+                pass
+
+            # Use lock to serialize OIIO operations (OIIO may not be thread-safe)
+            with ExportRunner._oiio_lock:
+                # Convert to absolute path with forward slashes for OIIO
+                output_path_str = str(output_path).replace("\\", "/")
+                
+                # Create output with OIIO
+                out = oiio.ImageOutput.create(output_path_str)
+                if not out:
+                    raise RuntimeError("ImageOutput.create failed")
+
+                # Open for writing
+                if not out.open(output_path_str, out_spec):
+                    # Get OIIO error message
+                    error_msg = out.geterror() if hasattr(out, 'geterror') else "unknown error"
+                    raise RuntimeError(f"out.open failed: OIIO error: {error_msg}")
+
+                # Write image data
+                if not out.write_image(pixel_data):
+                    error_msg = out.geterror() if hasattr(out, 'geterror') else "unknown error"
+                    raise RuntimeError(f"write_image failed: OIIO error: {error_msg}")
+
+                out.close()
+                out = None
+                
         except Exception as e:
-            self._log(f"Warning: Could not set compression: {e}")
-
-        # Write file
-        out = oiio.ImageOutput.create(str(output_path))
-        if not out:
-            raise RuntimeError(f"Could not create output file: {output_path}")
-
-        # Transpose pixel data for OIIO (expects height x width x channels)
-        if not out.open(str(output_path), out_spec):
-            raise RuntimeError(f"Could not open output file for writing: {output_path}")
-
-        if not out.write_image(pixel_data):
-            out.close()
-            raise RuntimeError(f"Failed to write image: {output_path}")
-
-        out.close()
+            raise RuntimeError(f"Write failed for {output_path}: {e}")
+        finally:
+            # Ensure output object is closed
+            if out:
+                try:
+                    out.close()
+                except Exception:
+                    pass
 
     def _log(self, message: str) -> None:
         """Emit a log message."""
