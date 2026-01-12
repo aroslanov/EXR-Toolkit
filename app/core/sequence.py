@@ -1,10 +1,16 @@
 """
 Sequence pattern parsing and frame discovery.
+
+Implements parallel batch processing for large directories using ThreadPoolExecutor
+while maintaining API compatibility with the sequential version.
 """
 
 import re
+import os
 from pathlib import Path
 from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 from .types import SequencePathPattern, SequenceSpec, FileProbe
 
@@ -13,30 +19,59 @@ class SequenceDiscovery:
     """Discovers image frames matching a pattern."""
 
     @staticmethod
-    def discover_sequences(directory: str) -> List[tuple[str, List[int]]]:
+    def _calculate_optimal_workers(file_count: int) -> int:
         """
-        Auto-discover all image sequences in directory.
+        Calculate optimal number of worker threads based on file count.
         
-        Returns list of (pattern_str, frame_list) tuples.
+        Strategy:
+        - Small directories (<100 files): 1 worker (sequential, overhead not worth it)
+        - Medium directories (100-1000 files): min(4, cpu_count)
+        - Large directories (>1000 files): min(8, cpu_count)
+        
+        Args:
+            file_count: Number of files to process
+        
+        Returns:
+            Optimal number of workers (1 = sequential fallback)
         """
-        dir_path = Path(directory)
-        if not dir_path.is_dir():
-            return []
+        if file_count < 100:
+            return 1  # Sequential fallback for small directories
         
-        # Collect all files
-        files = sorted([f.name for f in dir_path.iterdir() if f.is_file()])
-        if not files:
-            return []
+        available_cores = os.cpu_count() or 4
         
-        # Heuristic: look for common image extensions
-        image_exts = {'.exr', '.jpg', '.jpeg', '.png', '.tiff', '.tif'}
-        image_files = [f for f in files if Path(f).suffix.lower() in image_exts]
-        if not image_files:
-            return []
+        if file_count < 1000:
+            return min(4, available_cores)
+        else:
+            return min(8, available_cores)
+
+    @staticmethod
+    def _process_sequences_batch(
+        filenames: List[str],
+        image_exts: set = None
+    ) -> dict:
+        """
+        Process a batch of filenames to extract sequence patterns.
         
-        # Group by base pattern
+        This method is designed to be called from multiple threads.
+        Each thread processes a chunk of filenames independently.
+        
+        Args:
+            filenames: List of filenames to process
+            image_exts: Set of valid image extensions
+        
+        Returns:
+            Dictionary mapping pattern_str -> set of frame numbers
+        """
+        if image_exts is None:
+            image_exts = {'.exr', '.jpg', '.jpeg', '.png', '.tiff', '.tif'}
+        
         sequences = {}
-        for filename in image_files:
+        
+        for filename in filenames:
+            # Filter by extension
+            if Path(filename).suffix.lower() not in image_exts:
+                continue
+            
             # Match any sequence of digits (variable length)
             match_digits = re.search(r'^(.+?)(\d+)(\..+?)$', filename)
             
@@ -53,11 +88,102 @@ class SequenceDiscovery:
                 except ValueError:
                     pass
         
-        # Convert sets to sorted lists and return
+        return sequences
+
+    @staticmethod
+    def _process_frames_batch(
+        filenames: List[str],
+        regex: 're.Pattern'
+    ) -> set:
+        """
+        Process a batch of filenames to extract frame numbers.
+        
+        This method is designed to be called from multiple threads.
+        Each thread processes a chunk of filenames independently.
+        
+        Args:
+            filenames: List of filenames to process
+            regex: Compiled regex pattern for matching
+        
+        Returns:
+            Set of frame numbers found
+        """
+        frames = set()
+        
+        for filename in filenames:
+            match = regex.match(filename)
+            if match:
+                try:
+                    frame_num = int(match.group(1))
+                    frames.add(frame_num)
+                except (IndexError, ValueError):
+                    continue
+        
+        return frames
+
+    @staticmethod
+    def discover_sequences(directory: str) -> List[tuple[str, List[int]]]:
+        """
+        Auto-discover all image sequences in directory.
+        
+        Parallelized for directories with 100+ files using ThreadPoolExecutor.
+        For small directories, falls back to sequential processing.
+        
+        Returns list of (pattern_str, frame_list) tuples.
+        """
+        dir_path = Path(directory)
+        if not dir_path.is_dir():
+            return []
+        
+        # Phase 1: Collect all files (sequential, single I/O operation)
+        files = sorted([f.name for f in dir_path.iterdir() if f.is_file()])
+        if not files:
+            return []
+        
+        # Phase 2: Filter by image extensions (sequential, fast)
+        image_exts = {'.exr', '.jpg', '.jpeg', '.png', '.tiff', '.tif'}
+        image_files = [f for f in files if Path(f).suffix.lower() in image_exts]
+        if not image_files:
+            return []
+        
+        # Phase 3: Determine parallelization strategy
+        optimal_workers = SequenceDiscovery._calculate_optimal_workers(len(image_files))
+        
+        # Phase 4: Process patterns (parallel or sequential)
+        if optimal_workers == 1:
+            # Sequential fallback for small directories
+            all_sequences = SequenceDiscovery._process_sequences_batch(image_files, image_exts)
+        else:
+            # Parallel processing with chunking
+            chunk_size = max(50, len(image_files) // optimal_workers)
+            chunks = [
+                image_files[i:i+chunk_size]
+                for i in range(0, len(image_files), chunk_size)
+            ]
+            
+            all_sequences = {}
+            
+            # Process chunks in parallel using ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=optimal_workers) as executor:
+                batch_processor = partial(
+                    SequenceDiscovery._process_sequences_batch,
+                    image_exts=image_exts
+                )
+                
+                # Map function over chunks and collect results
+                for batch_result in executor.map(batch_processor, chunks):
+                    # Merge batch results into all_sequences
+                    for pattern, frames in batch_result.items():
+                        if pattern not in all_sequences:
+                            all_sequences[pattern] = set()
+                        all_sequences[pattern].update(frames)
+        
+        # Phase 5: Convert to return format and sort
         result = []
-        for pattern, frames in sorted(sequences.items()):
+        for pattern in sorted(all_sequences.keys()):
+            frames = sorted(all_sequences[pattern])
             if frames:
-                result.append((pattern, sorted(frames)))
+                result.append((pattern, frames))
         
         return result
 
@@ -65,33 +191,56 @@ class SequenceDiscovery:
     def discover_frames(pattern_str: str, directory: str) -> List[int]:
         """
         Scan directory for files matching pattern; return sorted frame numbers.
+        
+        Parallelized for directories with 100+ files using ThreadPoolExecutor.
+        For small directories, falls back to sequential processing.
 
         Pattern format:
         - %04d (printf-style)
         - #### (hash-style)
         """
-        pattern = SequencePathPattern(pattern_str)
-        
         dir_path = Path(directory)
         if not dir_path.is_dir():
             return []
 
-        # Build regex
+        # Phase 1: Collect all files (sequential, single I/O operation)
+        files = sorted([f.name for f in dir_path.iterdir() if f.is_file()])
+        if not files:
+            return []
+        
+        # Phase 2: Build regex pattern
         regex_str = _pattern_to_regex(pattern_str)
         regex = re.compile(regex_str)
-
-        frames = set()
-        for file_path in dir_path.iterdir():
-            if file_path.is_file():
-                match = regex.match(file_path.name)
-                if match:
-                    try:
-                        frame_num = int(match.group(1))
-                        frames.add(frame_num)
-                    except (IndexError, ValueError):
-                        continue
-
-        return sorted(frames)
+        
+        # Phase 3: Determine parallelization strategy
+        optimal_workers = SequenceDiscovery._calculate_optimal_workers(len(files))
+        
+        # Phase 4: Process frames (parallel or sequential)
+        if optimal_workers == 1:
+            # Sequential fallback for small directories
+            all_frames = SequenceDiscovery._process_frames_batch(files, regex)
+        else:
+            # Parallel processing with chunking
+            chunk_size = max(50, len(files) // optimal_workers)
+            chunks = [
+                files[i:i+chunk_size]
+                for i in range(0, len(files), chunk_size)
+            ]
+            
+            all_frames = set()
+            
+            # Process chunks in parallel using ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=optimal_workers) as executor:
+                batch_processor = partial(
+                    SequenceDiscovery._process_frames_batch,
+                    regex=regex
+                )
+                
+                # Map function over chunks and collect results
+                for batch_frames in executor.map(batch_processor, chunks):
+                    all_frames.update(batch_frames)
+        
+        return sorted(all_frames)
 
 
 def _pattern_to_regex(pattern: str) -> str:
