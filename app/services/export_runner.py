@@ -26,6 +26,7 @@ from ..core import (
     ValidationSeverity,
 )
 from ..oiio import OiioAdapter
+from ..processing import ProcessingPipeline, ProcessingExecutor
 
 
 class ExportSignals(QObject):
@@ -76,11 +77,14 @@ class ExportRunner(QRunnable):
         export_spec: ExportSpec,
         sequences: dict[str, SequenceSpec],
         compression_policy: str = "skip",
+        processing_pipeline: Optional[ProcessingPipeline] = None,
     ):
         super().__init__()
         self.export_spec = export_spec
         self.sequences = sequences
         self.compression_policy = compression_policy  # 'skip' or 'always'
+        self.processing_pipeline = processing_pipeline or ProcessingPipeline()
+        self.processing_executor = ProcessingExecutor()
         self.signals = ExportSignals()
         self.stop_requested = False  # Flag to stop export
 
@@ -842,6 +846,7 @@ class ExportRunner(QRunnable):
         """Write output EXR file (thread-safe).
         
         Uses a lock to serialize OIIO operations since OIIO may not be thread-safe.
+        Applies processing pipeline if enabled.
         """
         out = None
         try:
@@ -852,6 +857,15 @@ class ExportRunner(QRunnable):
             # Verify directory exists (should have been created by run())
             if not output_dir.exists():
                 raise RuntimeError(f"Output directory missing: {output_dir}")
+
+            # Apply processing pipeline if enabled
+            if self.processing_pipeline.enabled and not self.processing_pipeline.is_empty():
+                pixel_data = self._apply_processing_pipeline(
+                    pixel_data,
+                    spec_dict
+                )
+                if pixel_data is None:
+                    raise RuntimeError("Processing pipeline failed")
 
             # Create output spec
             out_spec = oiio.ImageSpec(
@@ -912,6 +926,63 @@ class ExportRunner(QRunnable):
                 except Exception:
                     pass
 
+    def _apply_processing_pipeline(
+        self,
+        pixel_data: np.ndarray,
+        spec_dict: dict
+    ) -> Optional[np.ndarray]:
+        """
+        Apply processing pipeline to pixel data.
+        
+        Converts numpy array to ImageBuf, applies filters, and converts back.
+        
+        Returns:
+            Processed pixel data or None if processing failed
+        """
+        try:
+            # Create ImageBuf from numpy array
+            # ImageBuf expects C-contiguous float32 data
+            if not pixel_data.flags['C_CONTIGUOUS']:
+                pixel_data = np.ascontiguousarray(pixel_data, dtype=np.float32)
+            
+            width = spec_dict["width"]
+            height = spec_dict["height"]
+            channels = spec_dict["channels"]
+            
+            # Create ImageBuf with proper spec
+            spec = oiio.ImageSpec(width, height, len(channels), oiio.FLOAT)
+            spec.channelnames = channels
+            
+            imagebuf = oiio.ImageBuf(spec)
+            
+            # Copy pixel data into ImageBuf
+            # pixel_data shape: (height, width, channels)
+            if not imagebuf.set_pixels(oiio.ROI.All(), pixel_data):
+                return None
+            
+            # Apply processing pipeline
+            try:
+                processed_buf = self.processing_executor.execute(
+                    imagebuf,
+                    self.processing_pipeline
+                )
+            except Exception as e:
+                self._log(f"Warning: Processing pipeline failed: {e}")
+                # Fall back to unprocessed data
+                return pixel_data
+            
+            # Convert back to numpy array
+            processed_data = processed_buf.get_pixels(oiio.ROI.All())
+            
+            if processed_data is None:
+                return None
+            
+            return np.asarray(processed_data, dtype=np.float32)
+        
+        except Exception as e:
+            self._log(f"Error in processing pipeline: {e}")
+            return None
+
     def _log(self, message: str) -> None:
         """Emit a log message."""
         self.signals.log.emit(message)
@@ -934,6 +1005,7 @@ class ExportManager(QObject):
         export_spec: ExportSpec,
         sequences: dict[str, SequenceSpec],
         compression_policy: str = "skip",
+        processing_pipeline: Optional[ProcessingPipeline] = None,
     ) -> None:
         """Start an export in a worker thread.
         
@@ -941,12 +1013,18 @@ class ExportManager(QObject):
             export_spec: Export configuration
             sequences: Available sequences
             compression_policy: 'skip' or 'always' for compression handling
+            processing_pipeline: Optional processing pipeline to apply during export
         """
         if self.current_runner:
             self.log.emit("Export already in progress")
             return
 
-        self.current_runner = ExportRunner(export_spec, sequences, compression_policy)
+        self.current_runner = ExportRunner(
+            export_spec,
+            sequences,
+            compression_policy,
+            processing_pipeline,
+        )
         self.current_runner.signals.finished.connect(self._on_finished)
         self.current_runner.signals.log.connect(self.log.emit)
         self.current_runner.signals.progress.connect(self.progress.emit)

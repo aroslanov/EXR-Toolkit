@@ -7,8 +7,12 @@ No loose dicts at the internal API boundary.
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 from pathlib import Path
+
+# Avoid circular imports
+if TYPE_CHECKING:
+    from ..processing import ProcessingPipeline
 
 
 class AttributeSource(Enum):
@@ -205,3 +209,25 @@ class ValidationIssue:
 
     def __str__(self) -> str:
         return f"[{self.severity.name}] {self.code}: {self.message}"
+
+@dataclass
+class ProcessingConfig:
+    """Configuration for image processing pipeline."""
+    enabled: bool = False
+    preview_frame: Optional[int] = None
+    # Note: actual pipeline stored separately via ProcessingPipeline instance
+    
+    def to_dict(self) -> dict:
+        """Serialize to dictionary."""
+        return {
+            "enabled": self.enabled,
+            "preview_frame": self.preview_frame,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> "ProcessingConfig":
+        """Deserialize from dictionary."""
+        return cls(
+            enabled=data.get("enabled", False),
+            preview_frame=data.get("preview_frame"),
+        )

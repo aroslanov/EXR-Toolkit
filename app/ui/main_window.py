@@ -52,7 +52,7 @@ from ..ui.models import (
     OutputChannelListModel,
     AttributeTableModel,
 )
-from ..ui.widgets import AttributeEditor
+from ..ui.widgets import AttributeEditor, ProcessingWidget
 
 
 class MainWindow(QMainWindow):
@@ -183,6 +183,11 @@ class MainWindow(QMainWindow):
         self.attr_editor = AttributeEditor()
         attr_layout.addWidget(self.attr_editor)
         tabs.addTab(attr_widget, "Attributes")
+
+        # Image processing
+        self.processing_widget = ProcessingWidget(self.state.processing_pipeline)
+        self.processing_widget.config_changed.connect(self._on_processing_config_changed)
+        tabs.addTab(self.processing_widget, "Processing")
 
         # Output options (compression, etc)
         options_widget = QWidget()
@@ -614,6 +619,11 @@ class MainWindow(QMainWindow):
         self.attr_editor.model.add_attribute(compression_attr)
         self.attr_editor.attributes_changed.emit(self.attr_editor.get_attributes())
 
+    def _on_processing_config_changed(self) -> None:
+        """Handle processing pipeline configuration changes."""
+        # Update the pipeline in state
+        self.state.set_processing_pipeline(self.processing_widget.get_pipeline())
+
     def _on_frame_policy_changed(self, policy_text: str) -> None:
         """Handle frame policy selection."""
         policy = self._get_frame_policy_from_text(policy_text)
@@ -765,7 +775,15 @@ class MainWindow(QMainWindow):
         compression_policy = self.compression_policy_combo.currentData()
         self._append_log(f"[DEBUG] Compression policy selected: {compression_policy}")
         
-        self.export_manager.start_export(export_spec, self.state.sequences, compression_policy)
+        # Get processing pipeline
+        processing_pipeline = self.state.get_processing_pipeline()
+        
+        self.export_manager.start_export(
+            export_spec,
+            self.state.sequences,
+            compression_policy,
+            processing_pipeline,
+        )
 
     def _on_export_progress(self, percent: int, message: str) -> None:
         """Handle export progress."""

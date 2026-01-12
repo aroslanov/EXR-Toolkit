@@ -16,6 +16,7 @@ from .types import (
     FrameRangePolicy,
     ValidationIssue,
     ValidationSeverity,
+    ProcessingConfig,
 )
 from .validation import ValidationEngine
 
@@ -36,5 +37,6 @@ __all__ = [
     "FrameRangePolicy",
     "ValidationIssue",
     "ValidationSeverity",
+    "ProcessingConfig",
     "ValidationEngine",
 ]

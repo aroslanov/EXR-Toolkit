@@ -6,6 +6,7 @@ Central in-memory store for:
 - Output channel specification
 - Export settings
 - Attribute merging and conflict resolution
+- Image processing pipeline
 """
 
 from typing import Optional, List
@@ -19,7 +20,9 @@ from ..core import (
     AttributeSpec,
     AttributeSource,
     ChannelSourceRef,
+    ProcessingConfig,
 )
+from ..processing import ProcessingPipeline
 
 
 class ProjectState:
@@ -31,6 +34,8 @@ class ProjectState:
             output_dir="",
             filename_pattern="output.%04d.exr",
         )
+        self.processing_config = ProcessingConfig()
+        self.processing_pipeline = ProcessingPipeline()
 
     # ========== Sequence Management ==========
 
@@ -187,3 +192,34 @@ class ProjectState:
     def get_export_spec(self) -> ExportSpec:
         """Get the full export specification."""
         return self.export_spec
+    # ========== Processing Pipeline Management ==========
+
+    def get_processing_pipeline(self) -> ProcessingPipeline:
+        """Get the processing pipeline."""
+        return self.processing_pipeline
+
+    def set_processing_pipeline(self, pipeline: ProcessingPipeline) -> None:
+        """Replace the entire processing pipeline."""
+        self.processing_pipeline = pipeline
+
+    def get_processing_config(self) -> ProcessingConfig:
+        """Get processing configuration."""
+        return self.processing_config
+
+    def set_processing_enabled(self, enabled: bool) -> None:
+        """Enable or disable processing."""
+        self.processing_config.enabled = enabled
+        self.processing_pipeline.enabled = enabled
+
+    def is_processing_enabled(self) -> bool:
+        """Check if processing is enabled."""
+        return self.processing_config.enabled
+
+    def set_processing_preview_frame(self, frame: Optional[int]) -> None:
+        """Set preview frame for processing (used by UI for real-time preview)."""
+        self.processing_config.preview_frame = frame
+        self.processing_pipeline.preview_frame = frame
+
+    def get_processing_preview_frame(self) -> Optional[int]:
+        """Get current preview frame."""
+        return self.processing_config.preview_frame
