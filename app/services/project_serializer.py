@@ -47,6 +47,7 @@ class ProjectSerializer:
             "format_version": ProjectSerializer.FORMAT_VERSION,
             "sequences": ProjectSerializer._serialize_sequences(state.sequences),
             "export_spec": ProjectSerializer._serialize_export_spec(state.export_spec),
+            "processing_pipeline": state.processing_pipeline.to_dict(),
         }
 
     @staticmethod
@@ -81,6 +82,14 @@ class ProjectSerializer:
             state.export_spec = ProjectSerializer._deserialize_export_spec(export_data)
         except Exception as e:
             raise ValueError(f"Failed to deserialize export spec: {e}")
+
+        # Restore processing pipeline
+        pipeline_data = data.get("processing_pipeline", {})
+        try:
+            from ..processing import ProcessingPipeline
+            state.processing_pipeline = ProcessingPipeline.from_dict(pipeline_data)
+        except Exception as e:
+            raise ValueError(f"Failed to deserialize processing pipeline: {e}")
 
         return state
 

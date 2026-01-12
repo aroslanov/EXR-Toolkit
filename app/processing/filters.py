@@ -94,6 +94,11 @@ class ProcessingFilter:
         self.parameters[name].value = value
         is_valid, _ = self.parameters[name].validate()
         return is_valid
+    
+    def clone(self) -> "ProcessingFilter":
+        """Create a deep copy of this filter with same parameters."""
+        from copy import deepcopy
+        return deepcopy(self)
 
 
 # ============================================================================

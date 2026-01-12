@@ -23,6 +23,7 @@ from ...processing import (
     get_all_categories,
     get_filters_by_category,
     ProcessingFilter,
+    create_filter,
 )
 
 
@@ -93,27 +94,28 @@ class FilterBrowser(QWidget):
             for filter_instance in filters:
                 filter_item = QTreeWidgetItem(category_item)
                 filter_item.setText(0, filter_instance.name)
-                filter_item.setData(0, Qt.ItemDataRole.UserRole, filter_instance)
+                # Store filter_id instead of instance, create fresh on demand
+                filter_item.setData(0, Qt.ItemDataRole.UserRole, filter_instance.filter_id)
     
     def _on_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         """Handle tree item selection."""
-        filter_obj = item.data(0, Qt.ItemDataRole.UserRole)
+        filter_id = item.data(0, Qt.ItemDataRole.UserRole)
         
-        if filter_obj is None:
+        if filter_id is None:
             # Category clicked - clear description
             self.current_filter = None
             self.desc_text.clear()
             self.btn_add.setEnabled(False)
         else:
-            # Filter clicked
-            self.current_filter = filter_obj
+            # Filter clicked - create fresh instance for display
+            self.current_filter = create_filter(filter_id)
             self._update_description()
             self.btn_add.setEnabled(True)
     
     def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         """Handle double-click to add filter."""
-        filter_obj = item.data(0, Qt.ItemDataRole.UserRole)
-        if filter_obj is not None:
+        filter_id = item.data(0, Qt.ItemDataRole.UserRole)
+        if filter_id is not None:
             self._on_add_clicked()
     
     def _update_description(self) -> None:

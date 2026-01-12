@@ -148,10 +148,10 @@ class ProcessingExecutor:
         width = width_param.value
         height = height_param.value
         
-        result = oiio.ImageBuf()
-        success = oiio.ImageBufAlgo.median_filter(result, imagebuf, width, height)
+        # OIIO 2.0+ API: returns result directly
+        result = oiio.ImageBufAlgo.median_filter(imagebuf, width, height)
         
-        if not success:
+        if result is None or result.has_error():
             raise RuntimeError("median_filter failed")
         
         return result
@@ -174,17 +174,16 @@ class ProcessingExecutor:
         radius = radius_param.value if radius_param else 0
         threshold = threshold_param.value if threshold_param else 0
         
-        result = oiio.ImageBuf()
-        success = oiio.ImageBufAlgo.unsharp_mask(
-            result,
+        # OIIO 2.0+ API: unsharp_mask(src, kernel="gaussian", width=radius, amount=amount, threshold=threshold)
+        result = oiio.ImageBufAlgo.unsharp_mask(
             imagebuf,
-            f"gaussian",
-            radius,
-            amount,
-            threshold
+            kernel="gaussian",
+            width=radius,
+            amount=amount,
+            threshold=threshold
         )
         
-        if not success:
+        if result is None or result.has_error():
             raise RuntimeError("unsharp_mask failed")
         
         return result
@@ -210,16 +209,15 @@ class ProcessingExecutor:
         if from_space is None or to_space is None or unpremult is None:
             raise ValueError("Color space conversion parameters have no value")
         
-        result = oiio.ImageBuf()
-        success = oiio.ImageBufAlgo.colorconvert(
-            result,
+        # OIIO 2.0+ API: colorconvert(src, from_space, to_space, unpremult)
+        result = oiio.ImageBufAlgo.colorconvert(
             imagebuf,
             from_space,
             to_space,
             unpremult
         )
         
-        if not success:
+        if result is None or result.has_error():
             raise RuntimeError(f"colorconvert from {from_space} to {to_space} failed")
         
         return result
@@ -243,23 +241,16 @@ class ProcessingExecutor:
         # Apply contrast first (multiply), then brightness (add)
         result = imagebuf
         
-        # Contrast: (pixel - 0.5) * contrast + 0.5
+        # Contrast: (pixel - 0.5) * contrast + 0.5 using OIIO 2.0+ API
         if contrast != 1.0:
             # Subtract 0.5, multiply by contrast, add 0.5
-            temp1 = oiio.ImageBuf()
-            oiio.ImageBufAlgo.add(temp1, result, (-0.5, -0.5, -0.5, 0))
-            
-            temp2 = oiio.ImageBuf()
-            oiio.ImageBufAlgo.mul(temp2, temp1, (contrast, contrast, contrast, 1))
-            
-            result = oiio.ImageBuf()
-            oiio.ImageBufAlgo.add(result, temp2, (0.5, 0.5, 0.5, 0))
+            temp1 = oiio.ImageBufAlgo.add(result, (-0.5, -0.5, -0.5, 0))
+            temp2 = oiio.ImageBufAlgo.mul(temp1, (contrast, contrast, contrast, 1))
+            result = oiio.ImageBufAlgo.add(temp2, (0.5, 0.5, 0.5, 0))
         
         # Brightness: multiply by brightness factor
         if brightness != 1.0:
-            result_final = oiio.ImageBuf()
-            oiio.ImageBufAlgo.mul(result_final, result, (brightness, brightness, brightness, 1))
-            result = result_final
+            result = oiio.ImageBufAlgo.mul(result, (brightness, brightness, brightness, 1))
         
         return result
     
@@ -298,10 +289,10 @@ class ProcessingExecutor:
         roi: Optional[oiio.ROI] = None
     ) -> oiio.ImageBuf:
         """Apply fill holes (push-pull) algorithm."""
-        result = oiio.ImageBuf()
-        success = oiio.ImageBufAlgo.fillholes_pushpull(result, imagebuf)
+        # OIIO 2.0+ API: returns result directly
+        result = oiio.ImageBufAlgo.fillholes_pushpull(imagebuf)
         
-        if not success:
+        if result is None or result.has_error():
             raise RuntimeError("fillholes_pushpull failed")
         
         return result
@@ -320,11 +311,10 @@ class ProcessingExecutor:
         
         fill_value = fill_param.value
         
-        result = oiio.ImageBuf()
-        # Use zero fill color for NaN/Inf values
-        success = oiio.ImageBufAlgo.fixNonFinite(result, imagebuf)
+        # OIIO 2.0+ API: returns result directly
+        result = oiio.ImageBufAlgo.fixNonFinite(imagebuf)
         
-        if not success:
+        if result is None or result.has_error():
             raise RuntimeError("fixNonFinite failed")
         
         return result
@@ -346,10 +336,10 @@ class ProcessingExecutor:
         # Default to identity matrix
         M = (1, 0, 0, 0, 1, 0, 0, 0, 1)
         
-        result = oiio.ImageBuf()
-        success = oiio.ImageBufAlgo.warp(result, imagebuf, M)
+        # OIIO 2.0+ API: returns result directly
+        result = oiio.ImageBufAlgo.warp(imagebuf, M)
         
-        if not success:
+        if result is None or result.has_error():
             raise RuntimeError("warp failed")
         
         return result
@@ -377,10 +367,10 @@ class ProcessingExecutor:
         else:
             angle = float(angle_str)
         
-        result = oiio.ImageBuf()
-        success = oiio.ImageBufAlgo.rotate(result, imagebuf, angle)
+        # OIIO 2.0+ API: returns result directly
+        result = oiio.ImageBufAlgo.rotate(imagebuf, angle)
         
-        if not success:
+        if result is None or result.has_error():
             raise RuntimeError(f"rotate by {angle} degrees failed")
         
         return result
@@ -430,10 +420,10 @@ class ProcessingExecutor:
         width = width_param.value if width_param else 0
         height = height_param.value if height_param else 0
         
-        result = oiio.ImageBuf()
-        success = oiio.ImageBufAlgo.dilate(result, imagebuf, width, height)
+        # OIIO 2.0+ API: returns result directly
+        result = oiio.ImageBufAlgo.dilate(imagebuf, width, height)
         
-        if not success:
+        if result is None or result.has_error():
             raise RuntimeError("dilate failed")
         
         return result
@@ -454,10 +444,10 @@ class ProcessingExecutor:
         width = width_param.value if width_param else 0
         height = height_param.value if height_param else 0
         
-        result = oiio.ImageBuf()
-        success = oiio.ImageBufAlgo.erode(result, imagebuf, width, height)
+        # OIIO 2.0+ API: returns result directly
+        result = oiio.ImageBufAlgo.erode(imagebuf, width, height)
         
-        if not success:
+        if result is None or result.has_error():
             raise RuntimeError("erode failed")
         
         return result
@@ -477,10 +467,10 @@ class ProcessingExecutor:
         channels_str = channels_param.value
         channel_list = tuple(ch.strip() for ch in channels_str.split(","))
         
-        result = oiio.ImageBuf()
-        success = oiio.ImageBufAlgo.channels(result, imagebuf, channel_list)
+        # OIIO 2.0+ API: returns result directly
+        result = oiio.ImageBufAlgo.channels(imagebuf, channel_list)
         
-        if not success:
+        if result is None or result.has_error():
             raise RuntimeError(f"channel extraction ({channels_str}) failed")
         
         return result
@@ -494,11 +484,11 @@ class ProcessingExecutor:
         """Invert pixel values (1 - value) per channel."""
         channels_param = filter.get_parameter("channels")
         
+        # OIIO 2.0+ API: returns result directly
         # If channels is empty, invert all
-        result = oiio.ImageBuf()
-        success = oiio.ImageBufAlgo.invert(result, imagebuf)
+        result = oiio.ImageBufAlgo.invert(imagebuf)
         
-        if not success:
+        if result is None or result.has_error():
             raise RuntimeError("channel invert failed")
         
         return result

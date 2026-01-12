@@ -78,10 +78,10 @@ class ParameterEditor(QWidget):
             self.params_layout.addStretch()
             return
         
-        for param_name, param in filter.parameters.items():
-            control = self._create_param_control(param)
+        for param_key, param in filter.parameters.items():
+            control = self._create_param_control(param, param_key)
             if control:
-                self.param_controls[param_name] = control
+                self.param_controls[param_key] = control
                 
                 # Add to layout with label
                 param_layout = QHBoxLayout()
@@ -113,7 +113,7 @@ class ParameterEditor(QWidget):
                 # Delete the sublayout itself
                 sublayout.deleteLater()
     
-    def _create_param_control(self, param) -> Optional[QWidget]:
+    def _create_param_control(self, param, param_key: str) -> Optional[QWidget]:
         """Create appropriate control for parameter type."""
         param_type = param.param_type
         
@@ -136,7 +136,7 @@ class ParameterEditor(QWidget):
             spin.setSingleStep(0.1)
             spin.setDecimals(3)
             spin.valueChanged.connect(
-                lambda value, pname=param.name: self._on_param_changed(pname, value)
+                lambda value, pkey=param_key: self._on_param_changed(pkey, value)
             )
             
             return spin
@@ -158,7 +158,7 @@ class ParameterEditor(QWidget):
                 spin.setValue(int(param.value))
             
             spin.valueChanged.connect(
-                lambda value, pname=param.name: self._on_param_changed(pname, value)
+                lambda value, pkey=param_key: self._on_param_changed(pkey, value)
             )
             
             return spin
@@ -170,7 +170,7 @@ class ParameterEditor(QWidget):
                 checkbox.setChecked(bool(param.value))
             
             checkbox.stateChanged.connect(
-                lambda _, pname=param.name: self._on_param_changed(pname, checkbox.isChecked())
+                lambda _, pkey=param_key: self._on_param_changed(pkey, checkbox.isChecked())
             )
             
             return checkbox
@@ -187,7 +187,7 @@ class ParameterEditor(QWidget):
                     combo.setCurrentIndex(idx)
             
             combo.currentTextChanged.connect(
-                lambda text, pname=param.name: self._on_param_changed(pname, text)
+                lambda text, pkey=param_key: self._on_param_changed(pkey, text)
             )
             
             return combo
@@ -199,7 +199,7 @@ class ParameterEditor(QWidget):
                 edit.setText(str(param.value))
             
             edit.textChanged.connect(
-                lambda text, pname=param.name: self._on_param_changed(pname, text)
+                lambda text, pkey=param_key: self._on_param_changed(pkey, text)
             )
             
             return edit

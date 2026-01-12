@@ -957,7 +957,7 @@ class ExportRunner(QRunnable):
             
             # Copy pixel data into ImageBuf
             # pixel_data shape: (height, width, channels)
-            if not imagebuf.set_pixels(oiio.ROI.All(), pixel_data):
+            if not imagebuf.set_pixels(oiio.ROI(), pixel_data):
                 return None
             
             # Apply processing pipeline
@@ -972,7 +972,7 @@ class ExportRunner(QRunnable):
                 return pixel_data
             
             # Convert back to numpy array
-            processed_data = processed_buf.get_pixels(oiio.ROI.All())
+            processed_data = processed_buf.get_pixels(oiio.FLOAT, oiio.ROI())
             
             if processed_data is None:
                 return None
