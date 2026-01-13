@@ -112,6 +112,14 @@ class ProjectState:
         """Get current compression."""
         return self.export_spec.compression
 
+    def set_compression_policy(self, policy: str) -> None:
+        """Set compression policy (skip or always)."""
+        self.export_spec.compression_policy = policy
+
+    def get_compression_policy(self) -> str:
+        """Get compression policy."""
+        return self.export_spec.compression_policy
+
     # ========== Attribute Management ==========
 
     def set_output_attributes(self, attrs: AttributeSet) -> None:

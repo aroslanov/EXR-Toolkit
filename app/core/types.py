@@ -196,6 +196,7 @@ class ExportSpec:
     output_attributes: AttributeSet = field(default_factory=AttributeSet)
     frame_policy: FrameRangePolicy = FrameRangePolicy.STOP_AT_SHORTEST
     compression: str = "zip"  # OIIO EXR compression name
+    compression_policy: str = "skip"  # "skip" or "always" - recompression optimization
     frame_range: Optional[tuple[int, int]] = None  # (start, end) inclusive
 
 

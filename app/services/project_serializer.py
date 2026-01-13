@@ -163,6 +163,7 @@ class ProjectSerializer:
             ),
             "frame_policy": spec.frame_policy.name,
             "compression": spec.compression,
+            "compression_policy": spec.compression_policy,
             "frame_range": spec.frame_range,
         }
 
@@ -186,6 +187,7 @@ class ProjectSerializer:
             ),
             frame_policy=frame_policy,
             compression=data.get("compression", "zip"),
+            compression_policy=data.get("compression_policy", "skip"),
             frame_range=data.get("frame_range"),
         )
 

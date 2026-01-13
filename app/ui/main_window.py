@@ -1088,8 +1088,18 @@ class MainWindow(QMainWindow):
             if idx >= 0:
                 self.frame_policy_combo.setCurrentIndex(idx)
             
+            # Reload compression policy from project
+            compression_policy = self.state.get_compression_policy()
+            idx = self.compression_policy_combo.findData(compression_policy)
+            if idx >= 0:
+                self.compression_policy_combo.setCurrentIndex(idx)
+            
             # Reload attributes
             self.attr_editor.set_attributes(self.state.get_output_attributes())
+            
+            # Reload processing pipeline into UI
+            self.processing_widget.set_pipeline(self.state.get_processing_pipeline())
+            self._append_log(f"[OK] Restored processing pipeline with {len(self.state.get_processing_pipeline().filters)} filter(s)")
             
             # Update max frame count
             self._update_max_frame_count()
