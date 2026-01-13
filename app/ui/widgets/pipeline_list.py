@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
+    QGridLayout,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -48,28 +49,32 @@ class PipelineList(QWidget):
         layout.addWidget(self.list, 1)
         
         # Control buttons
-        btn_layout = QHBoxLayout()
-        
+        # Use a grid instead of a single horizontal row to avoid a large minimum width
+        # (a QHBoxLayout's minimum width becomes the sum of all button minimum widths).
+        btn_layout = QGridLayout()
+
         self.btn_up = QPushButton("↑ Move Up")
         self.btn_up.clicked.connect(self._on_move_up)
         self.btn_up.setEnabled(False)
-        btn_layout.addWidget(self.btn_up)
-        
+        btn_layout.addWidget(self.btn_up, 0, 0)
+
         self.btn_down = QPushButton("↓ Move Down")
         self.btn_down.clicked.connect(self._on_move_down)
         self.btn_down.setEnabled(False)
-        btn_layout.addWidget(self.btn_down)
-        
+        btn_layout.addWidget(self.btn_down, 0, 1)
+
         self.btn_toggle = QPushButton("☑ Toggle")
         self.btn_toggle.clicked.connect(self._on_toggle_enabled)
         self.btn_toggle.setEnabled(False)
-        btn_layout.addWidget(self.btn_toggle)
-        
+        btn_layout.addWidget(self.btn_toggle, 1, 0)
+
         self.btn_remove = QPushButton("✕ Remove")
         self.btn_remove.clicked.connect(self._on_remove)
         self.btn_remove.setEnabled(False)
-        btn_layout.addWidget(self.btn_remove)
-        
+        btn_layout.addWidget(self.btn_remove, 1, 1)
+
+        btn_layout.setColumnStretch(0, 1)
+        btn_layout.setColumnStretch(1, 1)
         layout.addLayout(btn_layout)
     
     def set_pipeline(self, pipeline: ProcessingPipeline) -> None:

@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QSplitter,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 
 from ...processing import ProcessingPipeline
 from .filter_browser import FilterBrowser
@@ -50,12 +50,12 @@ class ProcessingWidget(QWidget):
         layout.addLayout(header_layout)
         
         # Main splitter: left side (filter browser) and right side (pipeline + editor)
-        main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         
         # Left: Filter browser
         self.filter_browser = FilterBrowser()
         self.filter_browser.filter_selected.connect(self._on_filter_selected)
-        main_splitter.addWidget(self.filter_browser)
+        self.main_splitter.addWidget(self.filter_browser)
         
         # Right side: vertical splitter (pipeline list on top, parameter editor on bottom)
         right_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -73,11 +73,24 @@ class ProcessingWidget(QWidget):
         right_splitter.addWidget(self.param_editor)
         
         right_splitter.setSizes([250, 200])
-        main_splitter.addWidget(right_splitter)
+        self.main_splitter.addWidget(right_splitter)
         
-        # Make filter browser 15% wider (460:340 ratio instead of 400:400)
-        main_splitter.setSizes([460, 340])
-        layout.addWidget(main_splitter, 1)
+        # Default ratio: left 45%, right 55% (user remains free to resize).
+        self.main_splitter.setStretchFactor(0, 45)
+        self.main_splitter.setStretchFactor(1, 55)
+        layout.addWidget(self.main_splitter, 1)
+
+        # Apply initial pixel sizes once the widget has a real width.
+        QTimer.singleShot(0, self._apply_main_splitter_default_sizes)
+
+    def _apply_main_splitter_default_sizes(self) -> None:
+        total_width = self.main_splitter.size().width()
+        if total_width <= 0:
+            total_width = max(self.size().width(), 800)
+
+        left = int(total_width * 0.45)
+        right = max(total_width - left, 1)
+        self.main_splitter.setSizes([left, right])
     
     def _connect_signals(self) -> None:
         """Connect internal signals."""
