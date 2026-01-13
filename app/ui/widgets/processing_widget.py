@@ -74,7 +74,7 @@ class ProcessingWidget(QWidget):
         right_splitter.setSizes([250, 200])
         main_splitter.addWidget(right_splitter)
         
-        main_splitter.setSizes([300, 600])
+        main_splitter.setSizes([400, 400])
         layout.addWidget(main_splitter, 1)
     
     def _connect_signals(self) -> None:

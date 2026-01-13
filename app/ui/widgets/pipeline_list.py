@@ -93,7 +93,35 @@ class PipelineList(QWidget):
             
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, i)  # Store index
+            
+            # Set tooltip with filter description
+            tooltip = self._build_filter_tooltip(filter)
+            item.setToolTip(tooltip)
+            
             self.list.addItem(item)
+    
+    def _build_filter_tooltip(self, filter) -> str:
+        """Build tooltip text for a filter."""
+        if not filter:
+            return ""
+        
+        # Build tooltip from filter metadata
+        tooltip = f"<b>{filter.name}</b>"
+        
+        # List parameters
+        if hasattr(filter, 'parameters') and filter.parameters:
+            tooltip += "\n\n<b>Parameters:</b>"
+            for param_name, param in filter.parameters.items():
+                param_type = param.param_type.name
+                tooltip += f"\n• {param.name}: {param_type}"
+                
+                if param.min_val is not None and param.max_val is not None:
+                    tooltip += f" ({param.min_val} to {param.max_val})"
+                
+                if param.description:
+                    tooltip += f" - {param.description}"
+        
+        return tooltip
     
     def _on_item_clicked(self, item: QListWidgetItem) -> None:
         """Handle filter selection."""
