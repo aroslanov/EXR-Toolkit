@@ -106,8 +106,6 @@ The application will start with a blank state. Begin by loading image sequences 
 
 ![EXR Toolkit Interface](./assets/screenshot.png)
 
-*Main interface showing the Processing tab with filter browser (left), active pipeline (top-right), and parameter editor (bottom-right)*
-
 ## Usage Guide
 
 ### Loading Sequences
@@ -244,9 +242,10 @@ The project requires the following Python packages:
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| **PySide6** | ≥6.6.0 | Qt 6 GUI framework (cross-platform UI) |
-| **OpenImageIO** | ≥2.5.0 | Image I/O library for EXR manipulation |
-| **numpy** | ≥1.24.0 | Numerical array operations for pixel buffer handling |
+| **PySide6** | ≥6.10.0 | Qt 6 GUI framework (cross-platform UI) |
+| **OpenImageIO** | ≥3.1.0 | Image I/O library for EXR manipulation |
+| **numpy** | ≥2.4.0 | Numerical array operations for pixel buffer handling |
+| **pytest** | ≥9.0.0 | Testing framework (optional, for development) |
 
 ### Verifying Requirements
 
@@ -257,9 +256,9 @@ pip list
 ```
 
 Should show:
-- `PySide6` (6.6.0+)
-- `OpenImageIO` (2.5.0+)  
-- `numpy` (1.24.0+)
+- `PySide6` (6.10.0+)
+- `OpenImageIO` (3.1.0+)  
+- `numpy` (2.4.0+)
 
 All three dependencies are essential:
 - **PySide6**: Provides the GUI framework
