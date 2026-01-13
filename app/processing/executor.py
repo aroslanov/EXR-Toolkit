@@ -151,7 +151,7 @@ class ProcessingExecutor:
         # OIIO 2.0+ API: returns result directly
         result = oiio.ImageBufAlgo.median_filter(imagebuf, width, height)
         
-        if result is None or result.has_error():
+        if result is None or getattr(result, 'has_error', False):
             raise RuntimeError("median_filter failed")
         
         return result
@@ -183,7 +183,7 @@ class ProcessingExecutor:
             threshold=threshold
         )
         
-        if result is None or result.has_error():
+        if result is None or getattr(result, 'has_error', False):
             raise RuntimeError("unsharp_mask failed")
         
         return result
@@ -300,7 +300,7 @@ class ProcessingExecutor:
         # OIIO 2.0+ API: returns result directly
         result = oiio.ImageBufAlgo.fillholes_pushpull(imagebuf)
         
-        if result is None or result.has_error():
+        if result is None or getattr(result, 'has_error', False):
             raise RuntimeError("fillholes_pushpull failed")
         
         return result
@@ -322,7 +322,7 @@ class ProcessingExecutor:
         # OIIO 2.0+ API: returns result directly
         result = oiio.ImageBufAlgo.fixNonFinite(imagebuf)
         
-        if result is None or result.has_error():
+        if result is None or getattr(result, 'has_error', False):
             raise RuntimeError("fixNonFinite failed")
         
         return result
@@ -347,7 +347,7 @@ class ProcessingExecutor:
         # OIIO 2.0+ API: returns result directly
         result = oiio.ImageBufAlgo.warp(imagebuf, M)
         
-        if result is None or result.has_error():
+        if result is None or getattr(result, 'has_error', False):
             raise RuntimeError("warp failed")
         
         return result
@@ -378,7 +378,7 @@ class ProcessingExecutor:
         # OIIO 2.0+ API: returns result directly
         result = oiio.ImageBufAlgo.rotate(imagebuf, angle)
         
-        if result is None or result.has_error():
+        if result is None or getattr(result, 'has_error', False):
             raise RuntimeError(f"rotate by {angle} degrees failed")
         
         return result
@@ -431,7 +431,7 @@ class ProcessingExecutor:
         # OIIO 2.0+ API: returns result directly
         result = oiio.ImageBufAlgo.dilate(imagebuf, width, height)
         
-        if result is None or result.has_error():
+        if result is None or getattr(result, 'has_error', False):
             raise RuntimeError("dilate failed")
         
         return result
@@ -455,7 +455,7 @@ class ProcessingExecutor:
         # OIIO 2.0+ API: returns result directly
         result = oiio.ImageBufAlgo.erode(imagebuf, width, height)
         
-        if result is None or result.has_error():
+        if result is None or getattr(result, 'has_error', False):
             raise RuntimeError("erode failed")
         
         return result
@@ -478,7 +478,7 @@ class ProcessingExecutor:
         # OIIO 2.0+ API: returns result directly
         result = oiio.ImageBufAlgo.channels(imagebuf, channel_list)
         
-        if result is None or result.has_error():
+        if result is None or getattr(result, 'has_error', False):
             raise RuntimeError(f"channel extraction ({channels_str}) failed")
         
         return result
@@ -496,7 +496,7 @@ class ProcessingExecutor:
         # If channels is empty, invert all
         result = oiio.ImageBufAlgo.invert(imagebuf)
         
-        if result is None or result.has_error():
+        if result is None or getattr(result, 'has_error', False):
             raise RuntimeError("channel invert failed")
         
         return result

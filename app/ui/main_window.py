@@ -490,6 +490,10 @@ class MainWindow(QMainWindow):
             attributes = seq.static_probe.main_subimage.attributes.attributes
         self.attr_table_model.set_attributes(attributes)
         
+        # Detect and set input color space for processing pipeline
+        color_space = self._detect_color_space(seq)
+        self.processing_widget.set_input_color_space(color_space)
+        
         # Update max frame count from longest sequence
         self._update_max_frame_count()
         
@@ -923,6 +927,24 @@ class MainWindow(QMainWindow):
             pattern, frames = combo.currentData()
             return pattern, frames
         return None, None
+
+    def _detect_color_space(self, seq: SequenceSpec) -> Optional[str]:
+        """
+        Detect the color space of a sequence from its metadata.
+        Returns the color space value (e.g., 'sRGB', 'scene_linear', etc.) or None.
+        """
+        if not seq.static_probe or not seq.static_probe.main_subimage:
+            return None
+        
+        # Look for oiio:ColorSpace attribute
+        attributes = seq.static_probe.main_subimage.attributes
+        if attributes:
+            color_space_attr = attributes.get_by_name("oiio:ColorSpace")
+            if color_space_attr:
+                return color_space_attr.value
+        
+        return None
+
     # ========== Settings ==========
 
     def _load_settings(self) -> None:
