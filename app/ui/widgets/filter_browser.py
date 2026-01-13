@@ -72,6 +72,10 @@ class FilterBrowser(QWidget):
             
             filters = get_filters_by_category(category)
             for filter_instance in filters:
+                # Skip hidden filters
+                if filter_instance.hidden:
+                    continue
+                    
                 filter_item = QTreeWidgetItem(category_item)
                 filter_item.setText(0, filter_instance.name)
                 # Store filter_id instead of instance, create fresh on demand

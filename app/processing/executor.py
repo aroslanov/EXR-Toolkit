@@ -217,8 +217,16 @@ class ProcessingExecutor:
             unpremult
         )
         
-        if result is None or result.has_error():
+        if result is None or getattr(result, 'has_error', False):
             raise RuntimeError(f"colorconvert from {from_space} to {to_space} failed")
+        
+        # CRITICAL: Update metadata to reflect the new color space
+        # This ensures downstream applications know the color space of the result
+        try:
+            result.spec().attribute("oiio:ColorSpace", to_space)
+        except Exception as e:
+            # Log but don't fail - metadata update shouldn't block the whole operation
+            print(f"[WARNING] Failed to set oiio:ColorSpace metadata to '{to_space}': {e}")
         
         return result
     

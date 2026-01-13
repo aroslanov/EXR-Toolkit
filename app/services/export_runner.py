@@ -859,11 +859,18 @@ class ExportRunner(QRunnable):
                 raise RuntimeError(f"Output directory missing: {output_dir}")
 
             # Apply processing pipeline if enabled
+            pipeline_metadata = None
             if self.processing_pipeline.enabled and not self.processing_pipeline.is_empty():
-                pixel_data = self._apply_processing_pipeline(
+                result = self._apply_processing_pipeline(
                     pixel_data,
                     spec_dict
                 )
+                if isinstance(result, tuple):
+                    pixel_data, pipeline_metadata = result
+                else:
+                    # Fallback for old return type
+                    pixel_data = result
+                    
                 if pixel_data is None:
                     raise RuntimeError("Processing pipeline failed")
 
@@ -885,6 +892,14 @@ class ExportRunner(QRunnable):
                     out_spec.attribute(attr.name, value)
                 except Exception:
                     pass
+
+            # Apply pipeline metadata (e.g., color space from color conversion)
+            if pipeline_metadata:
+                for key, value in pipeline_metadata.items():
+                    try:
+                        out_spec.attribute(key, value)
+                    except Exception as e:
+                        self._log(f"Warning: Failed to set attribute '{key}': {e}")
 
             # Set compression (silently skip on error)
             try:
@@ -930,14 +945,15 @@ class ExportRunner(QRunnable):
         self,
         pixel_data: np.ndarray,
         spec_dict: dict
-    ) -> Optional[np.ndarray]:
+    ) -> tuple[Optional[np.ndarray], Optional[dict]]:
         """
         Apply processing pipeline to pixel data.
         
         Converts numpy array to ImageBuf, applies filters, and converts back.
         
         Returns:
-            Processed pixel data or None if processing failed
+            Tuple of (processed pixel data, metadata dict) or (None, None) if processing failed
+            Metadata dict includes color space if it was converted
         """
         try:
             # Create ImageBuf from numpy array
@@ -958,7 +974,7 @@ class ExportRunner(QRunnable):
             # Copy pixel data into ImageBuf
             # pixel_data shape: (height, width, channels)
             if not imagebuf.set_pixels(oiio.ROI(), pixel_data):
-                return None
+                return None, None
             
             # Apply processing pipeline
             try:
@@ -969,19 +985,29 @@ class ExportRunner(QRunnable):
             except Exception as e:
                 self._log(f"Warning: Processing pipeline failed: {e}")
                 # Fall back to unprocessed data
-                return pixel_data
+                return pixel_data, None
+            
+            # Extract metadata from processed buffer (especially color space)
+            metadata = {}
+            processed_spec = processed_buf.spec()
+            
+            # Check for oiio:ColorSpace attribute (set by color space conversion filter)
+            color_space = processed_spec.get_string_attribute("oiio:ColorSpace")
+            if color_space:
+                metadata["oiio:ColorSpace"] = color_space
+                self._log(f"Processing pipeline set color space to: {color_space}")
             
             # Convert back to numpy array
             processed_data = processed_buf.get_pixels(oiio.FLOAT, oiio.ROI())
             
             if processed_data is None:
-                return None
+                return None, None
             
-            return np.asarray(processed_data, dtype=np.float32)
+            return np.asarray(processed_data, dtype=np.float32), metadata
         
         except Exception as e:
             self._log(f"Error in processing pipeline: {e}")
-            return None
+            return None, None
 
     def _log(self, message: str) -> None:
         """Emit a log message."""

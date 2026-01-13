@@ -31,6 +31,7 @@ class ProcessingWidget(QWidget):
     def __init__(self, pipeline: ProcessingPipeline):
         super().__init__()
         self.pipeline = pipeline
+        self.input_color_space: Optional[str] = None  # Hint for color conversion filter defaults
         self._build_ui()
         self._connect_signals()
     
@@ -74,7 +75,8 @@ class ProcessingWidget(QWidget):
         right_splitter.setSizes([250, 200])
         main_splitter.addWidget(right_splitter)
         
-        main_splitter.setSizes([400, 400])
+        # Make filter browser 15% wider (460:340 ratio instead of 400:400)
+        main_splitter.setSizes([460, 340])
         layout.addWidget(main_splitter, 1)
     
     def _connect_signals(self) -> None:
@@ -89,6 +91,13 @@ class ProcessingWidget(QWidget):
         self.pipeline_list.set_pipeline(pipeline)
         self.param_editor.set_filter(None)
     
+    def set_input_color_space(self, color_space: Optional[str]) -> None:
+        """
+        Set the input footage color space hint.
+        Used to default the ColorSpaceConversionFilter's 'from_space' parameter.
+        """
+        self.input_color_space = color_space
+    
     def _on_enable_changed(self, state: int) -> None:
         """Handle enable/disable checkbox."""
         self.pipeline.enabled = self.enable_checkbox.isChecked()
@@ -96,6 +105,11 @@ class ProcessingWidget(QWidget):
     
     def _on_filter_selected(self, filter) -> None:
         """Handle filter selection from browser."""
+        # Set default color space for color conversion filter if input is known
+        from ...processing import ColorSpaceConversionFilter
+        if isinstance(filter, ColorSpaceConversionFilter) and self.input_color_space:
+            filter.set_parameter("from_space", self.input_color_space)
+        
         # Add filter to pipeline
         self.pipeline_list.add_filter(filter)
         

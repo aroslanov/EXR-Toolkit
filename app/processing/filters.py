@@ -73,6 +73,7 @@ class ProcessingFilter:
     enabled: bool = True
     order: int = 0
     parameters: Dict[str, FilterParameter] = field(default_factory=dict)
+    hidden: bool = False  # If True, filter won't appear in UI
     
     def validate_parameters(self) -> tuple[bool, List[str]]:
         """Validate all parameters. Returns (is_valid, list_of_errors)."""
@@ -304,7 +305,8 @@ class WarpTransformFilter(ProcessingFilter):
                     options=["identity", "custom"],
                     description="Use preset or custom 3x3 matrix"
                 ),
-            }
+            },
+            hidden=True  # Hidden: incomplete parameters (missing matrix values)
         )
 
 
@@ -437,7 +439,8 @@ class ChannelExtractFilter(ProcessingFilter):
                     value="R,G,B",
                     description="Comma-separated channel names to extract"
                 ),
-            }
+            },
+            hidden=True  # Hidden: not useful for EXR export toolkit
         )
 
 
