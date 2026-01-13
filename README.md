@@ -1,6 +1,6 @@
 # EXR Toolkit
 
-A desktop GUI application for advanced EXR image sequence manipulation, enabling users to load multiple sequences, inspect all channels and metadata, and recombine them into new EXR outputs with full control over attributes and export settings.
+A desktop GUI application for advanced EXR image sequence manipulation, enabling users to load multiple sequences, inspect all channels and metadata, and recombine them into new EXR outputs with full control over attributes and export settings. Built on **OpenImageIO** for robust, high-performance image processing with native multithreading support.
 
 ## Features
 
@@ -19,11 +19,34 @@ A desktop GUI application for advanced EXR image sequence manipulation, enabling
 - **Real-time Validation**: Validates export configuration before allowing export
 - **Progress Tracking**: Live export progress and detailed logging
 
+### Processing Pipeline
+- **Non-Destructive Filter Stack**: Apply multiple image processing filters that execute during export
+- **Filter Browser**: Browse available filters organized by category (Blur, Color Correction, Transformation, etc.)
+- **Filter Management**:
+  - Add filters to the pipeline by selecting from the browser
+  - Reorder filters (↑/↓ buttons)
+  - Enable/disable individual filters
+  - Remove filters from the pipeline
+- **Dynamic Parameter Editor**: Edit filter parameters with appropriate controls (spinboxes, dropdowns, checkboxes)
+- **Pipeline Persistence**: Filter configurations are saved with project state
+- **Available Filters**:
+  - **Blur**: Median filter
+  - **Enhancement**: Unsharp mask, brightness/contrast, gamma correction
+  - **Color**: Color space conversion, channel inversion
+  - **Transformation**: Warp transform, rotate
+  - **Data Processing**: Fill holes, fix non-finite values, noise injection
+  - **Morphology**: Dilate, erode
+  - **Channel Operations**: Channel extract, channel invert
+- **Pipeline UI**: Dual-pane interface with filter browser (45%) and pipeline editor (55%), both fully resizable
+
 ### Technical Highlights
+- **OpenImageIO-Powered**: Built entirely on OpenImageIO (OIIO) for industry-standard, production-grade image I/O
+- **High-Performance Export**: Multithreaded frame processing during export for efficient batch operations on multi-core systems
 - **No Silent Conversions**: Channel format mismatches are explicitly detected and blocked
 - **Cryptomatte Compatible**: Full support for Cryptomatte workflows through metadata preservation
 - **Robust Format Handling**: Supports all channel formats exposed by OpenImageIO
 - **Settings Persistence**: Remembers your preferences (directories, compression, frame policy)
+- **Advanced Filters**: Leverages OIIO's ImageBufAlgo for reliable, hardware-optimized image operations (blur, color conversion, morphology, etc.)
 
 ## System Requirements
 
@@ -79,6 +102,12 @@ python main.py
 
 The application will start with a blank state. Begin by loading image sequences in the Input panel.
 
+## Screenshot
+
+![EXR Toolkit Interface](./assets/screenshot.png)
+
+*Main interface showing the Processing tab with filter browser (left), active pipeline (top-right), and parameter editor (bottom-right)*
+
 ## Usage Guide
 
 ### Loading Sequences
@@ -111,6 +140,28 @@ The application will start with a blank state. Begin by loading image sequences 
    - Remove attributes with multi-select delete
    - The "compression" attribute is automatically added and synced with the Compression dropdown
 
+### Setting Up Image Processing (Processing Tab)
+
+The **Processing** tab allows you to apply non-destructive image filters during export. Filters are applied in order and can be enabled/disabled individually.
+
+1. **Enable/Disable Pipeline**: Check **"Enable Processing Pipeline"** to activate filters during export (enabled by default)
+2. **Browse Filters**: 
+   - Left pane shows available filters organized by category
+   - Hover over any filter to see its description and parameters
+   - Click a filter to select it, then click **"Add Filter"** or double-click to add to the pipeline
+3. **Manage Active Filters** (right pane):
+   - **Active Filters list**: Shows filters in order of application
+   - **↑ Move Up / ↓ Move Down**: Reorder filters (order matters!)
+   - **☑ Toggle**: Enable/disable a filter without removing it
+   - **✕ Remove**: Delete a filter from the pipeline
+4. **Edit Filter Parameters** (bottom-right):
+   - Click a filter in the list to show its parameters
+   - Parameters display with appropriate controls (sliders, text boxes, dropdowns)
+   - Changes apply immediately to the pipeline state
+5. **Layout**: The left pane (filter browser) defaults to 45% width, right pane to 55%; you can adjust by dragging the splitter
+
+**Example workflow**: Add Unsharp Mask → Brightness/Contrast → Color Space Conversion to enhance and color-correct before export.
+
 ### Export Configuration
 
 1. **Output Directory**: Browse and select where to save the output sequence
@@ -132,6 +183,7 @@ The application will start with a blank state. Begin by loading image sequences 
 3. The button changes to **"STOP"** during export—click to cancel
 4. Monitor progress in the Progress bar and Log pane
 5. All output messages are logged with timestamps
+6. All enabled filters from the Processing pipeline are applied to each frame
 
 ### Settings
 
@@ -155,20 +207,29 @@ EXR_MP/
 │   ├── oiio/                   # OpenImageIO integration
 │   │   ├── __init__.py
 │   │   └── adapter.py          # OIIO wrapper and type mapping
+│   ├── processing/             # Image processing pipeline system
+│   │   ├── __init__.py
+│   │   ├── filters.py          # Filter definitions (15+ filters: blur, color, transform, etc.)
+│   │   ├── pipeline.py         # ProcessingPipeline container and serialization
+│   │   └── executor.py         # Applies filters to ImageBuf during export
 │   ├── services/               # Application services
 │   │   ├── __init__.py
-│   │   ├── project_state.py    # In-memory project state
+│   │   ├── project_state.py    # In-memory project state (sequences, export config, pipeline)
 │   │   ├── settings.py         # Settings persistence (INI file)
-│   │   └── export_runner.py    # Threaded export execution
+│   │   └── export_runner.py    # Threaded export execution with pipeline integration
 │   └── ui/                     # Qt 6 GUI components
 │       ├── __init__.py
-│       ├── main_window.py      # Main window orchestration
+│       ├── main_window.py      # Main window orchestration (tabs: Input, Output, Processing, Export)
 │       ├── models/             # Qt model classes
 │       │   ├── __init__.py
 │       │   └── qt_models.py    # List/Table models for sequences, channels, attributes
 │       └── widgets/            # Custom Qt widgets
 │           ├── __init__.py
-│           └── attribute_editor.py  # Attribute editor widget with dialogs
+│           ├── attribute_editor.py    # Attribute metadata editor with dialogs
+│           ├── filter_browser.py      # Hierarchical filter selection tree (45% left pane)
+│           ├── pipeline_list.py       # Active filter list with reorder/toggle/remove controls
+│           ├── parameter_editor.py    # Dynamic parameter editor for selected filter
+│           └── processing_widget.py   # Main Processing tab (integrates browser, list, editor)
 ├── main.py                     # Root launcher script
 ├── requirements.txt            # Python dependencies
 ├── settings.ini                # User settings (auto-created)
@@ -261,6 +322,24 @@ frame_policy = STOP_AT_SHORTEST
 
 ## Advanced Topics
 
+### Processing Pipeline Architecture
+
+The processing system is entirely non-destructive and optional:
+
+- **Pipeline Model** (`ProcessingPipeline`): Container for an ordered list of filters with enabled/disabled state
+- **Filter Registry**: 15+ filters organized by category (blur, color, transform, data cleaning, morphology, channels)
+- **Executor** (`ProcessingExecutor`): Applies filters sequentially to each frame's ImageBuf during export
+- **Serialization**: Pipeline state (filters and parameters) is serialized to project files and survives app restarts
+
+**Filter Categories**:
+- **Blur**: Median filter (radius-based noise reduction)
+- **Enhancement**: Unsharp mask, brightness/contrast, gamma correction
+- **Color**: Color space conversion, channel inversion
+- **Transformation**: Warp transform, rotate
+- **Data**: Fill holes, fix non-finite values, noise injection
+- **Morphology**: Dilate, erode
+- **Channels**: Channel extract, channel invert
+
 ### Frame Policy Details
 
 The frame policy determines behavior when input sequences have different frame counts:
@@ -275,7 +354,8 @@ Cryptomatte workflows are fully supported:
 1. Load sequences containing Cryptomatte channels and attributes
 2. Add Cryptomatte channels to output (e.g., `crypto_object`, `crypto_object_id`)
 3. Ensure all `cryptomatte/*` attributes are preserved
-4. Export normally—no special configuration needed
+4. Optional: Apply filters (e.g., dilate) for matte refinement
+5. Export normally—no special configuration needed
 
 The application preserves all metadata exactly as stored, ensuring Cryptomatte validation succeeds.
 
@@ -283,9 +363,10 @@ The application preserves all metadata exactly as stored, ensuring Cryptomatte v
 
 While the GUI is interactive, you can prepare export configurations:
 1. Load sequences and configure output channels
-2. Set export parameters (directory, pattern, compression, attributes)
-3. Click Export
-4. Repeat with different parameters as needed
+2. Set up processing filters (optional)
+3. Set export parameters (directory, pattern, compression, attributes)
+4. Click Export
+5. Repeat with different parameters as needed
 
 For fully automated batch processing, future versions may support scripted export via a Python API.
 
@@ -294,6 +375,8 @@ For fully automated batch processing, future versions may support scripted expor
 - **Single-Part EXR**: Multi-part/multi-subimage EXR files are supported for reading but output is always single-part
 - **Resolution Matching**: All sequences must have matching resolution (no resampling yet)
 - **Interactive Only**: GUI is interactive; no command-line API yet
+- **Filter Preview**: Processing pipeline cannot be previewed on a live frame (applies only at export time)
+- **OIIO-Limited Filters**: Filter library is bound by OpenImageIO's ImageBufAlgo capabilities
 
 ## License
 
@@ -301,5 +384,5 @@ This project is licensed under the [MIT License](https://opensource.org/licenses
 
 ---
 
-**Version**: 0.1.0 (Alpha)  
-**Last Updated**: January 9, 2026
+**Version**: 0.2.0 (Alpha)  
+**Last Updated**: January 12, 2026
