@@ -65,8 +65,8 @@ Ensure Python 3.12+ is installed on your system.
 
 1. **Clone or download the repository**
    ```bash
-   git clone https://github.com/yourusername/EXR_MP.git
-   cd EXR_MP
+   git clone https://github.com/aroslanov/EXR-Toolkit
+   cd EXR-Toolkit
    ```
 
 2. **Create and activate a virtual environment**
@@ -193,7 +193,7 @@ Settings are automatically saved to `settings.ini` and include:
 ## Project Structure
 
 ```
-EXR_MP/
+EXR-Toolkit/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py                 # Application entry point
