@@ -41,6 +41,8 @@ from ..core import (
     FrameRangePolicy,
     AttributeSpec,
     AttributeSource,
+    ResizePolicy,
+    ResizeAlgorithm,
 )
 from ..oiio import OiioAdapter
 from ..core.sequence import SequenceDiscovery
@@ -240,6 +242,54 @@ class MainWindow(QMainWindow):
             self._on_compression_policy_changed
         )
         options_layout.addWidget(self.compression_policy_combo)
+        
+        # Resize options
+        options_layout.addWidget(QLabel("Resize Policy:"))
+        self.resize_policy_combo = QComboBox()
+        self.resize_policy_combo.addItems(["None", "Largest", "Smallest", "Average", "Custom"])
+        self.resize_policy_combo.setToolTip(
+            "How to handle sequences with different resolutions:\n"
+            "  • None: No resizing (default, original dimensions preserved)\n"
+            "  • Largest: Upscale to match largest sequence\n"
+            "  • Smallest: Downscale to match smallest sequence\n"
+            "  • Average: Scale to average dimensions (rounded down)\n"
+            "  • Custom: Scale to user-specified fixed dimensions"
+        )
+        self.resize_policy_combo.currentTextChanged.connect(self._on_resize_policy_changed)
+        options_layout.addWidget(self.resize_policy_combo)
+
+        options_layout.addWidget(QLabel("Resize Algorithm:"))
+        self.resize_algo_combo = QComboBox()
+        self.resize_algo_combo.addItems(["Linear", "Cubic", "Lanczos3", "Nearest"])
+        self.resize_algo_combo.setToolTip(
+            "Resize quality and speed tradeoff:\n"
+            "  • Nearest: Fastest, lowest quality (blocky)\n"
+            "  • Linear: Fast, medium quality (smooth)\n"
+            "  • Cubic: Moderate speed, good quality\n"
+            "  • Lanczos3: Slowest, highest quality (production)"
+        )
+        self.resize_algo_combo.currentTextChanged.connect(self._on_resize_algorithm_changed)
+        options_layout.addWidget(self.resize_algo_combo)
+
+        # Custom size (hidden by default)
+        self.resize_custom_widget = QWidget()
+        custom_layout = QHBoxLayout(self.resize_custom_widget)
+        custom_layout.addWidget(QLabel("Width:"))
+        self.resize_width_spinbox = QSpinBox()
+        self.resize_width_spinbox.setMinimum(1)
+        self.resize_width_spinbox.setMaximum(8192)
+        self.resize_width_spinbox.setValue(1920)
+        self.resize_width_spinbox.valueChanged.connect(self._on_resize_custom_size_changed)
+        custom_layout.addWidget(self.resize_width_spinbox)
+        custom_layout.addWidget(QLabel("Height:"))
+        self.resize_height_spinbox = QSpinBox()
+        self.resize_height_spinbox.setMinimum(1)
+        self.resize_height_spinbox.setMaximum(8192)
+        self.resize_height_spinbox.setValue(1080)
+        self.resize_height_spinbox.valueChanged.connect(self._on_resize_custom_size_changed)
+        custom_layout.addWidget(self.resize_height_spinbox)
+        self.resize_custom_widget.setVisible(False)  # Hidden initially
+        options_layout.addWidget(self.resize_custom_widget)
         
         # Project save/load buttons
         options_layout.addWidget(QLabel("Project Management:"))
@@ -722,6 +772,46 @@ class MainWindow(QMainWindow):
         policy_text = self.compression_policy_combo.itemText(index)
         self._append_log(f"[OK] Compression policy set to: {policy_text}")
 
+    def _on_resize_policy_changed(self, text: str) -> None:
+        """Handle resize policy selection."""
+        policy_map = {
+            "None": ResizePolicy.NONE,
+            "Largest": ResizePolicy.LARGEST,
+            "Smallest": ResizePolicy.SMALLEST,
+            "Average": ResizePolicy.AVERAGE,
+            "Custom": ResizePolicy.CUSTOM,
+        }
+        policy = policy_map.get(text, ResizePolicy.NONE)
+        self.state.export_spec.resize_spec.policy = policy
+        self.settings.set_resize_policy(policy.name)
+        
+        # Show custom size controls only if CUSTOM selected
+        self.resize_custom_widget.setVisible(policy == ResizePolicy.CUSTOM)
+        self._append_log(f"[OK] Resize policy set to: {text}")
+
+    def _on_resize_algorithm_changed(self, text: str) -> None:
+        """Handle resize algorithm selection."""
+        algo_map = {
+            "Linear": ResizeAlgorithm.LINEAR,
+            "Cubic": ResizeAlgorithm.CUBIC,
+            "Lanczos3": ResizeAlgorithm.LANCZOS3,
+            "Nearest": ResizeAlgorithm.NEAREST,
+        }
+        algo = algo_map.get(text, ResizeAlgorithm.LANCZOS3)
+        self.state.export_spec.resize_spec.algorithm = algo
+        self.settings.set_resize_algorithm(algo.name)
+        self._append_log(f"[OK] Resize algorithm set to: {text}")
+
+    def _on_resize_custom_size_changed(self) -> None:
+        """Handle custom resize size changes."""
+        width = self.resize_width_spinbox.value()
+        height = self.resize_height_spinbox.value()
+        self.state.export_spec.resize_spec.custom_width = width
+        self.state.export_spec.resize_spec.custom_height = height
+        self.settings.set_resize_custom_width(width)
+        self.settings.set_resize_custom_height(height)
+        self._append_log(f"[OK] Custom resize size set to: {width}x{height}")
+
     # ========== Export ==========
 
     def _on_export_button_clicked(self) -> None:
@@ -986,6 +1076,41 @@ class MainWindow(QMainWindow):
         if saved_output_dir:
             self.output_dir_edit.setText(saved_output_dir)
             self.state.set_output_dir(saved_output_dir)
+
+        # Load resize policy setting
+        saved_resize_policy = self.settings.get_resize_policy()
+        policy_map_reverse = {
+            "NONE": "None",
+            "LARGEST": "Largest",
+            "SMALLEST": "Smallest",
+            "AVERAGE": "Average",
+            "CUSTOM": "Custom",
+        }
+        policy_text = policy_map_reverse.get(saved_resize_policy, "None")
+        idx = self.resize_policy_combo.findText(policy_text)
+        if idx >= 0:
+            self.resize_policy_combo.setCurrentIndex(idx)
+
+        # Load resize algorithm setting
+        saved_algo = self.settings.get_resize_algorithm()
+        algo_map_reverse = {
+            "LINEAR": "Linear",
+            "CUBIC": "Cubic",
+            "LANCZOS3": "Lanczos3",
+            "NEAREST": "Nearest",
+        }
+        algo_text = algo_map_reverse.get(saved_algo, "Lanczos3")
+        idx = self.resize_algo_combo.findText(algo_text)
+        if idx >= 0:
+            self.resize_algo_combo.setCurrentIndex(idx)
+
+        # Load custom resize size
+        custom_w = self.settings.get_resize_custom_width()
+        custom_h = self.settings.get_resize_custom_height()
+        if custom_w > 0:
+            self.resize_width_spinbox.setValue(custom_w)
+        if custom_h > 0:
+            self.resize_height_spinbox.setValue(custom_h)
 
         # Add compression attribute to output attributes
         self._add_compression_attribute()

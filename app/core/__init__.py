@@ -17,6 +17,9 @@ from .types import (
     ValidationIssue,
     ValidationSeverity,
     ProcessingConfig,
+    ResizePolicy,
+    ResizeAlgorithm,
+    ResizeSpec,
 )
 from .validation import ValidationEngine
 
@@ -38,5 +41,8 @@ __all__ = [
     "ValidationIssue",
     "ValidationSeverity",
     "ProcessingConfig",
+    "ResizePolicy",
+    "ResizeAlgorithm",
+    "ResizeSpec",
     "ValidationEngine",
 ]

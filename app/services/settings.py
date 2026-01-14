@@ -23,6 +23,10 @@ class Settings:
     KEY_COMPRESSION = "exr_compression"
     KEY_FRAME_POLICY = "frame_policy"
     KEY_COMPRESSION_POLICY = "compression_policy"
+    KEY_RESIZE_POLICY = "resize_policy"
+    KEY_RESIZE_ALGORITHM = "resize_algorithm"
+    KEY_RESIZE_CUSTOM_WIDTH = "resize_custom_width"
+    KEY_RESIZE_CUSTOM_HEIGHT = "resize_custom_height"
 
     def __init__(self):
         """Initialize settings from file or create defaults."""
@@ -42,6 +46,10 @@ class Settings:
             self.config.set(self.SECTION, self.KEY_COMPRESSION, "zip")
             self.config.set(self.SECTION, self.KEY_FRAME_POLICY, "STOP_AT_SHORTEST")
             self.config.set(self.SECTION, self.KEY_COMPRESSION_POLICY, "skip")
+            self.config.set(self.SECTION, self.KEY_RESIZE_POLICY, "NONE")
+            self.config.set(self.SECTION, self.KEY_RESIZE_ALGORITHM, "LANCZOS3")
+            self.config.set(self.SECTION, self.KEY_RESIZE_CUSTOM_WIDTH, "1920")
+            self.config.set(self.SECTION, self.KEY_RESIZE_CUSTOM_HEIGHT, "1080")
             self._save()
 
     def _save(self) -> None:
@@ -144,4 +152,60 @@ class Settings:
         if not self.config.has_section(self.SECTION):
             self.config.add_section(self.SECTION)
         self.config.set(self.SECTION, self.KEY_COMPRESSION_POLICY, policy)
+        self._save()
+
+    def get_resize_policy(self) -> str:
+        """Get resize policy (default: 'NONE')."""
+        try:
+            return self.config.get(self.SECTION, self.KEY_RESIZE_POLICY)
+        except:
+            return "NONE"
+
+    def set_resize_policy(self, policy: str) -> None:
+        """Set and save resize policy."""
+        if not self.config.has_section(self.SECTION):
+            self.config.add_section(self.SECTION)
+        self.config.set(self.SECTION, self.KEY_RESIZE_POLICY, policy)
+        self._save()
+
+    def get_resize_algorithm(self) -> str:
+        """Get resize algorithm (default: 'LANCZOS3')."""
+        try:
+            return self.config.get(self.SECTION, self.KEY_RESIZE_ALGORITHM)
+        except:
+            return "LANCZOS3"
+
+    def set_resize_algorithm(self, algorithm: str) -> None:
+        """Set and save resize algorithm."""
+        if not self.config.has_section(self.SECTION):
+            self.config.add_section(self.SECTION)
+        self.config.set(self.SECTION, self.KEY_RESIZE_ALGORITHM, algorithm)
+        self._save()
+
+    def get_resize_custom_width(self) -> int:
+        """Get custom resize width (default: 1920)."""
+        try:
+            return int(self.config.get(self.SECTION, self.KEY_RESIZE_CUSTOM_WIDTH))
+        except:
+            return 1920
+
+    def set_resize_custom_width(self, width: int) -> None:
+        """Set and save custom resize width."""
+        if not self.config.has_section(self.SECTION):
+            self.config.add_section(self.SECTION)
+        self.config.set(self.SECTION, self.KEY_RESIZE_CUSTOM_WIDTH, str(width))
+        self._save()
+
+    def get_resize_custom_height(self) -> int:
+        """Get custom resize height (default: 1080)."""
+        try:
+            return int(self.config.get(self.SECTION, self.KEY_RESIZE_CUSTOM_HEIGHT))
+        except:
+            return 1080
+
+    def set_resize_custom_height(self, height: int) -> None:
+        """Set and save custom resize height."""
+        if not self.config.has_section(self.SECTION):
+            self.config.add_section(self.SECTION)
+        self.config.set(self.SECTION, self.KEY_RESIZE_CUSTOM_HEIGHT, str(height))
         self._save()

@@ -19,6 +19,7 @@ from ..core import (
     AttributeSource,
     FrameRangePolicy,
     ExportSpec,
+    ResizeSpec,
 )
 from .project_state import ProjectState
 
@@ -164,6 +165,7 @@ class ProjectSerializer:
             "frame_policy": spec.frame_policy.name,
             "compression": spec.compression,
             "compression_policy": spec.compression_policy,
+            "resize_spec": spec.resize_spec.to_dict(),
             "frame_range": spec.frame_range,
         }
 
@@ -175,6 +177,10 @@ class ProjectSerializer:
             frame_policy = FrameRangePolicy[frame_policy_name]
         except KeyError:
             frame_policy = FrameRangePolicy.STOP_AT_SHORTEST
+
+        # Deserialize resize spec
+        resize_data = data.get("resize_spec", {})
+        resize_spec = ResizeSpec.from_dict(resize_data) if resize_data else ResizeSpec()
 
         return ExportSpec(
             output_dir=data.get("output_dir", ""),
@@ -188,6 +194,7 @@ class ProjectSerializer:
             frame_policy=frame_policy,
             compression=data.get("compression", "zip"),
             compression_policy=data.get("compression_policy", "skip"),
+            resize_spec=resize_spec,
             frame_range=data.get("frame_range"),
         )
 

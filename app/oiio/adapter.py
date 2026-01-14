@@ -227,3 +227,39 @@ class OiioAdapter:
         except Exception:
             pass
         return "unknown"
+    @staticmethod
+    def resize_image(filepath: str, target_width: int, target_height: int, 
+                    algorithm: str = "lanczos3") -> Optional[oiio.ImageBuf]:
+        """
+        Resize an image file to target dimensions.
+        
+        Args:
+            filepath: Path to input image file
+            target_width: Target width in pixels
+            target_height: Target height in pixels
+            algorithm: OIIO filter name ("linear", "cubic", "lanczos3", "nearest")
+        
+        Returns:
+            Resized ImageBuf or None if error
+        """
+        try:
+            src = oiio.ImageBuf(filepath)
+            if not src or not src.initialized():
+                return None
+            
+            # Get number of channels from source
+            spec = src.spec()
+            nchannels = spec.nchannels
+            
+            # Create ROI for target size
+            roi = oiio.ROI(0, target_width, 0, target_height, 0, 1, 
+                          0, nchannels)
+            
+            # Resize with specified filter
+            dst = oiio.ImageBufAlgo.resize(src, filtername=algorithm, roi=roi)
+            
+            return dst if dst and dst.initialized() else None
+        
+        except Exception as e:
+            print(f"[OIIO] Error resizing {filepath}: {e}")
+            return None

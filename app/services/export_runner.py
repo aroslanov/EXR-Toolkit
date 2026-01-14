@@ -24,9 +24,11 @@ from ..core import (
     SequenceSpec,
     ValidationEngine,
     ValidationSeverity,
+    ResizePolicy,
 )
 from ..oiio import OiioAdapter
 from ..processing import ProcessingPipeline, ProcessingExecutor
+from ..processing.resize import calculate_target_size, get_filter_name
 
 
 class ExportSignals(QObject):
@@ -574,6 +576,7 @@ class ExportRunner(QRunnable):
         
         Optimized to read channels in parallel from same source files.
         Channels from different files are grouped and read in parallel batches.
+        Applies resize if configured.
 
         Returns (pixel_data, spec_dict) or (None, {}) if failed.
         """
@@ -591,6 +594,19 @@ class ExportRunner(QRunnable):
 
         spec = first_seq.static_probe.main_subimage.spec
         width, height = spec.width, spec.height
+
+        # Calculate target size if resize is enabled
+        resize_spec = self.export_spec.resize_spec
+        if resize_spec.policy != ResizePolicy.NONE:
+            target_w, target_h = calculate_target_size(
+                list(self.sequences.values()),
+                resize_spec.policy,
+                resize_spec.custom_width,
+                resize_spec.custom_height,
+            )
+            if target_w > 0 and target_h > 0 and (target_w != width or target_h != height):
+                self._log(f"[RESIZE] Resizing from {width}x{height} to {target_w}x{target_h} ({resize_spec.algorithm.name})")
+                width, height = target_w, target_h
 
         # Allocate output buffer (float32 for now; could be more flexible)
         n_output_channels = len(self.export_spec.output_channels)
@@ -787,6 +803,7 @@ class ExportRunner(QRunnable):
     ) -> Optional[np.ndarray]:
         """
         Read a single channel from a file (thread-safe).
+        Applies resize if configured.
         
         This method is designed to be called from multiple threads reading
         different channels from the same file. Each thread opens its own
@@ -797,50 +814,143 @@ class ExportRunner(QRunnable):
             raise RuntimeError("Export stopped by user")
 
         try:
-            inp = oiio.ImageInput.open(filepath)
-            if not inp:
-                return None
+            # Check if resize is needed
+            resize_needed = (
+                self.export_spec.resize_spec.policy != ResizePolicy.NONE
+            )
+            
+            if resize_needed:
+                # Use OIIO-based resize
+                return self._read_and_resize_channel(filepath, channel_name, subimage_index)
+            else:
+                # Standard read without resize
+                inp = oiio.ImageInput.open(filepath)
+                if not inp:
+                    return None
 
-            # Seek to subimage if needed
-            if subimage_index > 0:
-                if not inp.seek_subimage(subimage_index, 0):
+                # Seek to subimage if needed
+                if subimage_index > 0:
+                    if not inp.seek_subimage(subimage_index, 0):
+                        inp.close()
+                        return None
+
+                spec = inp.spec()
+
+                # Find channel index
+                ch_idx = None
+                for i, name in enumerate(spec.channelnames):
+                    if name == channel_name:
+                        ch_idx = i
+                        break
+
+                if ch_idx is None:
                     inp.close()
                     return None
 
-            spec = inp.spec()
-            width, height = spec.width, spec.height
-
-            # Find channel index
-            ch_idx = None
-            for i, name in enumerate(spec.channelnames):
-                if name == channel_name:
-                    ch_idx = i
-                    break
-
-            if ch_idx is None:
+                # Read all pixels (simple approach)
+                pixels = inp.read_image()
                 inp.close()
+
+                if pixels is None:
+                    return None
+
+                # Extract channel and reshape
+                # pixels is typically (height, width, channels)
+                if isinstance(pixels, np.ndarray):
+                    channel_data = pixels[:, :, ch_idx].astype(np.float32)
+                    return channel_data
+
                 return None
-
-            # Read all pixels (simple approach)
-            pixels = inp.read_image()
-            inp.close()
-
-            if pixels is None:
-                return None
-
-            # Extract channel and reshape
-            # pixels is typically (height, width, channels)
-            if isinstance(pixels, np.ndarray):
-                channel_data = pixels[:, :, ch_idx].astype(np.float32)
-                return channel_data
-
-            return None
 
         except Exception as e:
             # Only log if not due to stop request
             if not self.stop_requested:
                 self._log(f"Error reading channel: {e}")
             return None
+
+    def _read_and_resize_channel(
+        self, filepath: str, channel_name: str, subimage_index: int = 0
+    ) -> Optional[np.ndarray]:
+        """
+        Read a channel from file and resize to target dimensions.
+        """
+        try:
+            # Calculate target size
+            target_w, target_h = calculate_target_size(
+                list(self.sequences.values()),
+                self.export_spec.resize_spec.policy,
+                self.export_spec.resize_spec.custom_width,
+                self.export_spec.resize_spec.custom_height,
+            )
+            
+            if target_w <= 0 or target_h <= 0:
+                return None
+            
+            # Get filter name
+            filter_name = get_filter_name(self.export_spec.resize_spec.algorithm)
+            
+            # Read original image
+            inp = oiio.ImageInput.open(filepath)
+            if not inp:
+                return None
+            
+            if subimage_index > 0:
+                if not inp.seek_subimage(subimage_index, 0):
+                    inp.close()
+                    return None
+            
+            spec = inp.spec()
+            
+            # Find channel index
+            ch_idx = None
+            for i, name in enumerate(spec.channelnames):
+                if name == channel_name:
+                    ch_idx = i
+                    break
+            
+            if ch_idx is None:
+                inp.close()
+                return None
+            
+            # Read pixels
+            pixels = inp.read_image()
+            inp.close()
+            
+            if pixels is None:
+                return None
+            
+            if isinstance(pixels, np.ndarray):
+                channel_data = pixels[:, :, ch_idx].astype(np.float32)
+                
+                # Create ImageBuf from channel data
+                src_spec = oiio.ImageSpec(
+                    spec.width, spec.height, 1, oiio.FLOAT
+                )
+                src_buf = oiio.ImageBuf(src_spec)
+                
+                # Prepare data as contiguous C-order
+                channel_data_c = np.ascontiguousarray(channel_data)
+                src_buf.set_pixels(oiio.ROI(), channel_data_c.reshape(-1, 1))
+                
+                # Resize
+                roi = oiio.ROI(0, target_w, 0, target_h, 0, 1, 0, 1)
+                dst_buf = oiio.ImageBufAlgo.resize(src_buf, filtername=filter_name, roi=roi)
+                
+                if not dst_buf or not dst_buf.initialized():
+                    return None
+                
+                # Read back resized data
+                resized_pixels = dst_buf.get_pixels(oiio.ROI.All())
+                if isinstance(resized_pixels, np.ndarray):
+                    return resized_pixels[:, :, 0].astype(np.float32)
+                
+                return None
+        
+        except Exception as e:
+            if not self.stop_requested:
+                self._log(f"Error resizing channel: {e}")
+            return None
+
 
     def _write_exr(self, output_path: Path, pixel_data: np.ndarray, spec_dict: dict) -> None:
         """Write output EXR file (thread-safe).

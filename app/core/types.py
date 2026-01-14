@@ -36,6 +36,23 @@ class ValidationSeverity(Enum):
     WARNING = auto()
 
 
+class ResizePolicy(Enum):
+    """How to calculate target size from input sequences."""
+    NONE = auto()           # No resize (default, backward compatible)
+    LARGEST = auto()        # Match largest sequence dimensions
+    SMALLEST = auto()       # Match smallest sequence dimensions
+    AVERAGE = auto()        # Round-down average of all dimensions
+    CUSTOM = auto()         # User-specified fixed dimensions
+
+
+class ResizeAlgorithm(Enum):
+    """OIIO filter for resize quality."""
+    LINEAR = auto()         # Bilinear interpolation (fast)
+    CUBIC = auto()          # Cubic interpolation
+    LANCZOS3 = auto()       # High-quality (default)
+    NEAREST = auto()        # Nearest neighbor (fastest)
+
+
 @dataclass
 class ChannelFormat:
     """Wraps OIIO channel type information."""
@@ -188,6 +205,34 @@ class OutputChannel:
 
 
 @dataclass
+class ResizeSpec:
+    """Resize configuration for multi-sequence normalization."""
+    policy: ResizePolicy = ResizePolicy.NONE
+    algorithm: ResizeAlgorithm = ResizeAlgorithm.LANCZOS3
+    custom_width: int = 0
+    custom_height: int = 0
+    
+    def to_dict(self) -> dict:
+        """Serialize for project file."""
+        return {
+            "policy": self.policy.name,
+            "algorithm": self.algorithm.name,
+            "custom_width": self.custom_width,
+            "custom_height": self.custom_height,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> "ResizeSpec":
+        """Deserialize from project file."""
+        return cls(
+            policy=ResizePolicy[data.get("policy", "NONE")],
+            algorithm=ResizeAlgorithm[data.get("algorithm", "LANCZOS3")],
+            custom_width=data.get("custom_width", 0),
+            custom_height=data.get("custom_height", 0),
+        )
+
+
+@dataclass
 class ExportSpec:
     """Complete export specification."""
     output_dir: str
@@ -197,6 +242,7 @@ class ExportSpec:
     frame_policy: FrameRangePolicy = FrameRangePolicy.STOP_AT_SHORTEST
     compression: str = "zip"  # OIIO EXR compression name
     compression_policy: str = "skip"  # "skip" or "always" - recompression optimization
+    resize_spec: ResizeSpec = field(default_factory=ResizeSpec)
     frame_range: Optional[tuple[int, int]] = None  # (start, end) inclusive
 
 
