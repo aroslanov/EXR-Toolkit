@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QProgressDialog,
     QMessageBox,
+    QInputDialog,
 )
 from PySide6.QtCore import Qt
 
@@ -167,9 +168,14 @@ class MainWindow(QMainWindow):
         self.output_list = QListView()
         self.output_list.setModel(self.out_ch_list_model)
         self.output_list.setSelectionMode(QListView.SelectionMode.MultiSelection)
+        self.output_list.selectionModel().selectionChanged.connect(self._on_output_selection_changed)
         layout.addWidget(self.output_list, 1)  # Stretch factor 1
 
         btn_layout = QHBoxLayout()
+        self.btn_rename_output = QPushButton("Rename")
+        self.btn_rename_output.clicked.connect(self._on_rename_output_channel)
+        self.btn_rename_output.setEnabled(False)
+        btn_layout.addWidget(self.btn_rename_output)
         btn_remove = QPushButton("Remove")
         btn_remove.clicked.connect(self._on_remove_output_channel)
         btn_layout.addWidget(btn_remove)
@@ -607,6 +613,58 @@ class MainWindow(QMainWindow):
                 self.state.remove_output_channel(row)
                 self.out_ch_list_model.remove_at(row)
                 self._append_log(f"[OK] Removed output channel: {ch.output_name}")
+
+    def _on_output_selection_changed(self) -> None:
+        """Handle output channel selection change - enable/disable rename button."""
+        selected_indices = self.output_list.selectedIndexes()
+        # Enable rename button if exactly one channel is selected
+        self.btn_rename_output.setEnabled(len(selected_indices) == 1)
+
+    def _on_rename_output_channel(self) -> None:
+        """Handle 'Rename' button for output channels."""
+        selected_indices = self.output_list.selectedIndexes()
+        if len(selected_indices) != 1:
+            self._append_log("[WARNING] Please select exactly one output channel to rename")
+            return
+
+        row = selected_indices[0].row()
+        ch = self.out_ch_list_model.get_channel(row)
+        if not ch:
+            self._append_log("[ERROR] Channel not found")
+            return
+
+        # Show input dialog with current channel name
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Rename Output Channel",
+            "New output channel name:",
+            text=ch.output_name
+        )
+
+        if ok and new_name:
+            # Validate the new name (non-empty, no special characters)
+            if not new_name.strip():
+                self._append_log("[ERROR] Channel name cannot be empty")
+                return
+            
+            # Check for invalid characters
+            invalid_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
+            if any(char in new_name for char in invalid_chars):
+                self._append_log("[ERROR] Channel name contains invalid characters")
+                return
+
+            # Create updated channel with new name
+            updated_channel = OutputChannel(
+                output_name=new_name.strip(),
+                source=ch.source,
+                override_format=ch.override_format
+            )
+
+            # Update state and model
+            self.state.update_output_channel(row, updated_channel)
+            self.out_ch_list_model.update_at(row, updated_channel)
+            self._append_log(f"[OK] Renamed output channel to: {new_name}")
+
 
     def _on_add_attributes_to_output(self) -> None:
         """Handle 'Add Selected to Output Attributes' button."""
