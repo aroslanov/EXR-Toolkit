@@ -72,10 +72,65 @@ class SequenceListModel(QAbstractListModel):
             filename = str(seq.pattern.pattern)
             return f"{seq.display_name} | {filename}"
 
+        if role == Qt.ItemDataRole.ToolTipRole:
+            return self._format_sequence_tooltip(seq)
+
         if role == Qt.ItemDataRole.UserRole:
             return seq.id
 
         return None
+
+    def _format_sequence_tooltip(self, seq: SequenceSpec) -> str:
+        """Format sequence information for tooltip display."""
+        lines = []
+        lines.append(f"<b>{seq.display_name}</b>")
+        lines.append("")
+        
+        # Frame information
+        if seq.frames:
+            frame_count = len(seq.frames)
+            min_frame = min(seq.frames)
+            max_frame = max(seq.frames)
+            lines.append(f"<b>Frames:</b> {frame_count} ({min_frame} - {max_frame})")
+        
+        # Probe information (size, bit depth, compression, etc.)
+        if seq.static_probe and seq.static_probe.main_subimage:
+            probe = seq.static_probe.main_subimage
+            spec = probe.spec
+            
+            # Image dimensions
+            lines.append(f"<b>Resolution:</b> {spec.width} x {spec.height}")
+            
+            # Pixel format / bit depth
+            if spec.format and spec.format != "unknown":
+                lines.append(f"<b>Format:</b> {spec.format}")
+            
+            # Channels
+            if spec.nchannels > 0:
+                lines.append(f"<b>Channels:</b> {spec.nchannels}")
+            
+            # Tile information
+            if spec.tile_width > 0 and spec.tile_height > 0:
+                lines.append(f"<b>Tiling:</b> {spec.tile_width} x {spec.tile_height}")
+            
+            # Compression attribute
+            compression_attr = probe.attributes.get_by_name("compression")
+            if compression_attr:
+                lines.append(f"<b>Compression:</b> {compression_attr.value}")
+            
+            # Other useful attributes
+            pixel_aspect = probe.attributes.get_by_name("pixelAspectRatio")
+            if pixel_aspect:
+                lines.append(f"<b>Pixel Aspect:</b> {pixel_aspect.value}")
+            
+            display_window = probe.attributes.get_by_name("displayWindow")
+            if display_window:
+                lines.append(f"<b>Display Window:</b> {display_window.value}")
+        else:
+            lines.append("<i>No probe data available</i>")
+            lines.append("<i>Click 'Load Sequence' to extract metadata</i>")
+        
+        return "<br>".join(lines)
 
 
 class ChannelListModel(QAbstractListModel):
