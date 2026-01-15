@@ -25,6 +25,7 @@ from ..core import (
     ValidationEngine,
     ValidationSeverity,
     ResizePolicy,
+    FrameRangePolicy,
 )
 from ..oiio import OiioAdapter
 from ..processing import ProcessingPipeline, ProcessingExecutor
@@ -507,29 +508,62 @@ class ExportRunner(QRunnable):
             return min(8, available_cores)
 
     def _resolve_frame_list(self) -> List[int]:
-        """Determine which frames to export based on policy."""
+        """
+        Determine which frames to export based on frame_policy.
+        
+        Frame policies:
+        - STOP_AT_SHORTEST: Export stops when shortest sequence ends
+        - HOLD_LAST: Continue to longest sequence, reusing last frame from shorter ones
+        - PROCESS_AVAILABLE: Continue to longest, use available frames (otherwise last)
+        """
         if not self.sequences:
             return []
 
-        all_frames = []
-        for seq in self.sequences.values():
-            all_frames.extend(seq.frames)
-
-        if not all_frames:
+        # Collect all unique frame numbers from all sequences
+        all_sequences_frames = [sorted(seq.frames) for seq in self.sequences.values()]
+        
+        if not all_sequences_frames or any(len(f) == 0 for f in all_sequences_frames):
             return []
 
-        all_frames = sorted(set(all_frames))
+        # Debug: Log sequence frame counts
+        seq_names = list(self.sequences.keys())
+        for i, (name, frames) in enumerate(zip(seq_names, all_sequences_frames)):
+            self._log(f"  Sequence '{name}': {len(frames)} frames (indices {frames[0]}-{frames[-1]})")
+
+        # Determine output frame count based on policy
+        policy = self.export_spec.frame_policy
+        
+        if policy == FrameRangePolicy.STOP_AT_SHORTEST:
+            # Output stops at shortest sequence
+            num_frames = min(len(frames) for frames in all_sequences_frames)
+            self._log(f"Frame policy: STOP_AT_SHORTEST -> output {num_frames} frames")
+        elif policy == FrameRangePolicy.HOLD_LAST:
+            # Output continues to longest sequence
+            num_frames = max(len(frames) for frames in all_sequences_frames)
+            self._log(f"Frame policy: HOLD_LAST -> output {num_frames} frames (longest sequence)")
+        elif policy == FrameRangePolicy.PROCESS_AVAILABLE:
+            # Output continues to longest sequence
+            num_frames = max(len(frames) for frames in all_sequences_frames)
+            self._log(f"Frame policy: PROCESS_AVAILABLE -> output {num_frames} frames (longest sequence)")
+        else:
+            # Fallback to longest
+            num_frames = max(len(frames) for frames in all_sequences_frames)
+            self._log(f"Frame policy: UNKNOWN ({policy}) -> output {num_frames} frames (fallback to longest)")
+
+        # Generate frame list: use indices 0 to num_frames-1
+        # _get_frame_for_sequence will map these indices to actual frame numbers in each sequence
+        frame_list = list(range(num_frames))
 
         # Apply frame_range filter if specified by user
         if self.export_spec.frame_range is not None:
             start_frame, end_frame = self.export_spec.frame_range
-            all_frames = [f for f in all_frames if start_frame <= f <= end_frame]
-            if not all_frames:
+            frame_list = [f for f in frame_list if start_frame <= f <= end_frame]
+            if not frame_list:
                 self._log(
                     f"Warning: No frames found in range [{start_frame}, {end_frame}]"
                 )
 
-        return all_frames
+        return frame_list
 
     def _export_frame(self, frame_num: int) -> None:
         """Export a single frame with detailed compression and channel info."""
@@ -570,37 +604,49 @@ class ExportRunner(QRunnable):
         result = re.sub(r"#+", lambda m: str(frame).zfill(len(m.group(0))), result)
         return result
 
-    def _get_frame_for_sequence(self, requested_frame: int, sequence: SequenceSpec) -> int:
+    def _get_frame_for_sequence(self, requested_frame_index: int, sequence: SequenceSpec) -> int:
         """
-        Apply frame policy to map requested frame to actual available frame in sequence.
+        Map a requested frame index (0, 1, 2, ...) to actual frame number in sequence.
         
-        If sequence has fewer frames than requested, apply the frame policy:
-        - HOLD_LAST: return the last frame index
-        - STOP_AT_SHORTEST: should not be called (export should stop earlier)
-        - PROCESS_AVAILABLE: return requested frame if available, else last frame
+        Frame index is the position in the output sequence (0-based).
+        Frame number is the actual frame number in the source sequence.
+        
+        Examples:
+        - If sequence has frames [0, 1, 2, 3, 4] and requested_frame_index=2, return 2
+        - If sequence has frames [0, 1] (2 frames) and requested_frame_index=5 with HOLD_LAST policy:
+          return 1 (last frame)
+        
+        Args:
+            requested_frame_index: Position in output (0-based index)
+            sequence: The source sequence
+        
+        Returns:
+            Actual frame number to use from this sequence
         """
         if not sequence.frames:
             return 0
         
-        # Get the highest frame number in this sequence
-        max_frame_in_seq = max(sequence.frames)
+        # Sort frames to get a consistent ordering
+        sorted_frames = sorted(sequence.frames)
         
-        if requested_frame <= max_frame_in_seq:
-            # Frame is available
-            return requested_frame
+        # If requested index is within sequence length, use that frame
+        if requested_frame_index < len(sorted_frames):
+            return sorted_frames[requested_frame_index]
         
-        # Frame is beyond available frames - apply policy
+        # Frame index is beyond available frames - apply policy
         policy = self.export_spec.frame_policy
+        last_frame = sorted_frames[-1]
         
         if policy == FrameRangePolicy.HOLD_LAST:
-            # Repeat the last available frame
-            return max_frame_in_seq
+            # Return the last frame in the sequence
+            return last_frame
         elif policy == FrameRangePolicy.PROCESS_AVAILABLE:
-            # Use last available frame
-            return max_frame_in_seq
+            # Return the last available frame
+            return last_frame
         else:  # STOP_AT_SHORTEST
-            # Should not reach here, but return last frame as fallback
-            return max_frame_in_seq
+            # Should not reach here (export should stop earlier)
+            # But return last frame as safe fallback
+            return last_frame
 
     def _assemble_frame(self, frame_num: int) -> tuple[Optional[np.ndarray], dict]:
         """
