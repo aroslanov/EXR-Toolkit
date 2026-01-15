@@ -105,6 +105,9 @@ class ValidationEngine:
         issues = []
 
         # All output channels must have consistent resolution
+        # (unless resize is enabled to normalize inputs)
+        from ..core import ResizePolicy
+        
         resolutions = set()
         for ch in export_spec.output_channels:
             if not ch.source:
@@ -126,7 +129,8 @@ class ValidationEngine:
             if spec:
                 resolutions.add((spec.spec.width, spec.spec.height))
 
-        if len(resolutions) > 1:
+        # Only enforce resolution consistency if resize is disabled
+        if len(resolutions) > 1 and export_spec.resize_spec.policy == ResizePolicy.NONE:
             issues.append(
                 ValidationIssue(
                     severity=ValidationSeverity.ERROR,

@@ -570,6 +570,38 @@ class ExportRunner(QRunnable):
         result = re.sub(r"#+", lambda m: str(frame).zfill(len(m.group(0))), result)
         return result
 
+    def _get_frame_for_sequence(self, requested_frame: int, sequence: SequenceSpec) -> int:
+        """
+        Apply frame policy to map requested frame to actual available frame in sequence.
+        
+        If sequence has fewer frames than requested, apply the frame policy:
+        - HOLD_LAST: return the last frame index
+        - STOP_AT_SHORTEST: should not be called (export should stop earlier)
+        - PROCESS_AVAILABLE: return requested frame if available, else last frame
+        """
+        if not sequence.frames:
+            return 0
+        
+        # Get the highest frame number in this sequence
+        max_frame_in_seq = max(sequence.frames)
+        
+        if requested_frame <= max_frame_in_seq:
+            # Frame is available
+            return requested_frame
+        
+        # Frame is beyond available frames - apply policy
+        policy = self.export_spec.frame_policy
+        
+        if policy == FrameRangePolicy.HOLD_LAST:
+            # Repeat the last available frame
+            return max_frame_in_seq
+        elif policy == FrameRangePolicy.PROCESS_AVAILABLE:
+            # Use last available frame
+            return max_frame_in_seq
+        else:  # STOP_AT_SHORTEST
+            # Should not reach here, but return last frame as fallback
+            return max_frame_in_seq
+
     def _assemble_frame(self, frame_num: int) -> tuple[Optional[np.ndarray], dict]:
         """
         Assemble output frame from selected input channels.
@@ -624,8 +656,11 @@ class ExportRunner(QRunnable):
             if not src_seq:
                 continue
 
+            # Apply frame policy to get the actual frame to read
+            actual_frame = self._get_frame_for_sequence(frame_num, src_seq)
+            
             # Get full frame path
-            filename = src_seq.pattern.format(frame_num)
+            filename = src_seq.pattern.format(actual_frame)
             frame_path = src_seq.source_dir / filename
             if not frame_path.exists():
                 self._log(f"Warning: Source file not found: {frame_path}")
@@ -655,7 +690,12 @@ class ExportRunner(QRunnable):
                 # Populate output buffer with results
                 for (out_idx, out_ch), src_data in zip(channel_list, results):
                     if src_data is not None:
+                        self._log(f"[ASSEMBLE] Channel {out_idx} ({out_ch.output_name}): "
+                                 f"src_data shape={src_data.shape}, dtype={src_data.dtype}, "
+                                 f"min={src_data.min():.6f}, max={src_data.max():.6f}")
                         output_data[:, :, out_idx] = src_data
+                    else:
+                        self._log(f"[ASSEMBLE] Channel {out_idx} ({out_ch.output_name}): NO DATA")
                     
             except Exception as e:
                 # Suppress exception if stop was requested
@@ -663,6 +703,10 @@ class ExportRunner(QRunnable):
                     raise RuntimeError("Export stopped by user")
                 self._log(f"Warning: Could not read channels from {frame_path}: {e}")
 
+        self._log(f"[ASSEMBLE] Final output_data shape={output_data.shape}, dtype={output_data.dtype}, "
+                 f"min={output_data.min():.6f}, max={output_data.max():.6f}, "
+                 f"non-zero pixels={np.count_nonzero(output_data)}")
+        
         return output_data, {
             "width": width,
             "height": height,
@@ -932,17 +976,22 @@ class ExportRunner(QRunnable):
                 channel_data_c = np.ascontiguousarray(channel_data)
                 src_buf.set_pixels(oiio.ROI(), channel_data_c.reshape(-1, 1))
                 
-                # Resize
+                # Resize using ROI to specify target dimensions
+                # ImageBufAlgo.resize(src, roi=...) returns a new resized ImageBuf
                 roi = oiio.ROI(0, target_w, 0, target_h, 0, 1, 0, 1)
-                dst_buf = oiio.ImageBufAlgo.resize(src_buf, filtername=filter_name, roi=roi)
+                resized_buf = oiio.ImageBufAlgo.resize(src_buf, roi=roi, filtername=filter_name)
                 
-                if not dst_buf or not dst_buf.initialized():
+                if not isinstance(resized_buf, oiio.ImageBuf):
                     return None
                 
                 # Read back resized data
-                resized_pixels = dst_buf.get_pixels(oiio.ROI.All())
-                if isinstance(resized_pixels, np.ndarray):
-                    return resized_pixels[:, :, 0].astype(np.float32)
+                resized_pixels = resized_buf.get_pixels(oiio.FLOAT, oiio.ROI())
+                if resized_pixels is not None:
+                    resized_array = np.asarray(resized_pixels, dtype=np.float32)
+                    # Ensure 2D shape (height, width) - squeeze out single channel dimension
+                    if resized_array.ndim == 3:
+                        return resized_array[:, :, 0]
+                    return resized_array
                 
                 return None
         
@@ -1034,6 +1083,14 @@ class ExportRunner(QRunnable):
                     raise RuntimeError(f"out.open failed: OIIO error: {error_msg}")
 
                 # Write image data
+                # Ensure data is in correct memory layout (C-contiguous, row-major)
+                if not pixel_data.flags['C_CONTIGUOUS']:
+                    pixel_data = np.ascontiguousarray(pixel_data)
+                
+                # Debug logging
+                self._log(f"[WRITE_EXR] pixel_data shape: {pixel_data.shape}, dtype: {pixel_data.dtype}, "
+                         f"contiguous: {pixel_data.flags['C_CONTIGUOUS']}, min: {pixel_data.min()}, max: {pixel_data.max()}")
+                
                 if not out.write_image(pixel_data):
                     error_msg = out.geterror() if hasattr(out, 'geterror') else "unknown error"
                     raise RuntimeError(f"write_image failed: OIIO error: {error_msg}")

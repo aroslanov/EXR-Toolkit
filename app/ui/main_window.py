@@ -1299,6 +1299,73 @@ class MainWindow(QMainWindow):
             if idx >= 0:
                 self.compression_policy_combo.setCurrentIndex(idx)
             
+            # Reload resize settings from project (or fallback to settings)
+            from ..core import ResizePolicy, ResizeAlgorithm
+            
+            # If project was saved without resize_spec (old files), use settings from INI
+            # Check if project has meaningful resize data
+            has_project_resize = (
+                self.state.export_spec.resize_spec.policy != ResizePolicy.NONE or
+                self.state.export_spec.resize_spec.custom_width > 0 or
+                self.state.export_spec.resize_spec.custom_height > 0
+            )
+            
+            if has_project_resize:
+                # Use resize settings from project
+                resize_policy = self.state.export_spec.resize_spec.policy
+                resize_algo = self.state.export_spec.resize_spec.algorithm
+                custom_w = self.state.export_spec.resize_spec.custom_width
+                custom_h = self.state.export_spec.resize_spec.custom_height
+            else:
+                # Fall back to settings from INI file
+                saved_policy_str = self.settings.get_resize_policy()
+                resize_policy = ResizePolicy[saved_policy_str] if saved_policy_str else ResizePolicy.NONE
+                
+                saved_algo_str = self.settings.get_resize_algorithm()
+                resize_algo = ResizeAlgorithm[saved_algo_str] if saved_algo_str else ResizeAlgorithm.LANCZOS3
+                
+                custom_w = self.settings.get_resize_custom_width()
+                custom_h = self.settings.get_resize_custom_height()
+                
+                # Update state with settings values so validation sees correct policy
+                self.state.export_spec.resize_spec.policy = resize_policy
+                self.state.export_spec.resize_spec.algorithm = resize_algo
+                self.state.export_spec.resize_spec.custom_width = custom_w
+                self.state.export_spec.resize_spec.custom_height = custom_h
+            
+            # Update UI
+            policy_map_text = {
+                ResizePolicy.NONE: "None",
+                ResizePolicy.LARGEST: "Largest",
+                ResizePolicy.SMALLEST: "Smallest",
+                ResizePolicy.AVERAGE: "Average",
+                ResizePolicy.CUSTOM: "Custom",
+            }
+            policy_text = policy_map_text.get(resize_policy, "None")
+            idx = self.resize_policy_combo.findText(policy_text)
+            if idx >= 0:
+                self.resize_policy_combo.setCurrentIndex(idx)
+            
+            algo_map_text = {
+                ResizeAlgorithm.LINEAR: "Linear",
+                ResizeAlgorithm.CUBIC: "Cubic",
+                ResizeAlgorithm.LANCZOS3: "Lanczos3",
+                ResizeAlgorithm.NEAREST: "Nearest",
+            }
+            algo_text = algo_map_text.get(resize_algo, "Lanczos3")
+            idx = self.resize_algo_combo.findText(algo_text)
+            if idx >= 0:
+                self.resize_algo_combo.setCurrentIndex(idx)
+            
+            # Update custom size controls visibility
+            self.resize_custom_widget.setVisible(resize_policy == ResizePolicy.CUSTOM)
+            
+            # Load custom size
+            if custom_w > 0:
+                self.resize_width_spinbox.setValue(custom_w)
+            if custom_h > 0:
+                self.resize_height_spinbox.setValue(custom_h)
+            
             # Reload attributes
             self.attr_editor.set_attributes(self.state.get_output_attributes())
             
