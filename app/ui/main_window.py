@@ -163,13 +163,18 @@ class MainWindow(QMainWindow):
         panel = QWidget()
         layout = QVBoxLayout(panel)
 
-        layout.addWidget(QLabel("Output Channels"))
+        # Output Channels Tab Widget (NEW SEPARATE TAB GROUP)
+        tabsOutput = QTabWidget()
+
+        # Output Channels Tab
+        output_channels_widget = QWidget()
+        output_channels_layout = QVBoxLayout(output_channels_widget)
 
         self.output_list = QListView()
         self.output_list.setModel(self.out_ch_list_model)
         self.output_list.setSelectionMode(QListView.SelectionMode.MultiSelection)
         self.output_list.selectionModel().selectionChanged.connect(self._on_output_selection_changed)
-        layout.addWidget(self.output_list, 1)  # Stretch factor 1
+        output_channels_layout.addWidget(self.output_list, 1)  # Stretch factor 1
 
         btn_layout = QHBoxLayout()
         self.btn_rename_output = QPushButton("Rename")
@@ -180,17 +185,21 @@ class MainWindow(QMainWindow):
         btn_remove.clicked.connect(self._on_remove_output_channel)
         btn_layout.addWidget(btn_remove)
         btn_layout.addStretch()
-        layout.addLayout(btn_layout)
+        output_channels_layout.addLayout(btn_layout)
 
-        # Tabs for attributes and options
-        tabs = QTabWidget()
+        tabsOutput.addTab(output_channels_widget, "Output Channels")
 
         # Output attributes
         attr_widget = QWidget()
         attr_layout = QVBoxLayout(attr_widget)
         self.attr_editor = AttributeEditor()
         attr_layout.addWidget(self.attr_editor)
-        tabs.addTab(attr_widget, "Attributes")
+        tabsOutput.addTab(attr_widget, "Output Attributes")
+
+        layout.addWidget(tabsOutput, 1)  # Stretch factor 1
+
+        # Tabs for processing and options
+        tabs = QTabWidget()
 
         # Image processing
         self.processing_widget = ProcessingWidget(self.state.processing_pipeline)
