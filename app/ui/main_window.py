@@ -134,7 +134,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Channels in Selected Sequence"))
         self.channel_list = QListView()
         self.channel_list.setModel(self.ch_list_model)
-        self.channel_list.setSelectionMode(QListView.SelectionMode.MultiSelection)
+        self.channel_list.setSelectionMode(QListView.SelectionMode.ExtendedSelection)
         layout.addWidget(self.channel_list, 1)  # Stretch factor 1
 
         btn_add_to_output = QPushButton("Add Selected to Output")
@@ -149,7 +149,7 @@ class MainWindow(QMainWindow):
         self.source_attribute_table.verticalHeader().setVisible(False)
         from PySide6.QtWidgets import QAbstractItemView
         self.source_attribute_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.source_attribute_table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        self.source_attribute_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         layout.addWidget(self.source_attribute_table, 1)  # Stretch factor 1
 
         btn_add_attrs = QPushButton("Add Selected to Output Attributes")
@@ -167,7 +167,7 @@ class MainWindow(QMainWindow):
 
         self.output_list = QListView()
         self.output_list.setModel(self.out_ch_list_model)
-        self.output_list.setSelectionMode(QListView.SelectionMode.MultiSelection)
+        self.output_list.setSelectionMode(QListView.SelectionMode.ExtendedSelection)
         self.output_list.selectionModel().selectionChanged.connect(self._on_output_selection_changed)
         layout.addWidget(self.output_list, 1)  # Stretch factor 1
 
