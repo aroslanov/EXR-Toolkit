@@ -23,6 +23,9 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QFileDialog,
     QListView,
+    QListWidget,
+    QListWidgetItem,
+    QAbstractItemView,
     QTableView,
     QComboBox,
     QSpinBox,
@@ -147,7 +150,6 @@ class MainWindow(QMainWindow):
         self.source_attribute_table.setModel(self.attr_table_model)
         self.source_attribute_table.horizontalHeader().setStretchLastSection(True)
         self.source_attribute_table.verticalHeader().setVisible(False)
-        from PySide6.QtWidgets import QAbstractItemView
         self.source_attribute_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.source_attribute_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         layout.addWidget(self.source_attribute_table, 1)  # Stretch factor 1
@@ -408,111 +410,112 @@ class MainWindow(QMainWindow):
 
     def _on_load_sequence(self) -> None:
         """Handle 'Load Sequence' button."""
+        from PySide6.QtWidgets import QApplication
+
         initial_dir = self.settings.get_input_dir() or ""
         path = QFileDialog.getExistingDirectory(self, "Select Sequence Directory", initial_dir)
         if not path:
             return
 
-        # Create and show loading dialog
-        loading_dialog = QProgressDialog("Loading sequence...", "", 0, 0, self)
+        # Discover all sequences in the chosen directory
+        loading_dialog = QProgressDialog("Discovering sequences...", "", 0, 0, self)
         loading_dialog.setWindowTitle("Loading")
         loading_dialog.setCancelButton(None)
         loading_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         loading_dialog.show()
-
-        # Process events to show dialog
-        from PySide6.QtWidgets import QApplication
         QApplication.processEvents()
 
         try:
-            # Auto-discover sequences in the directory
             self._append_log("[LOAD] Discovering sequences in directory...")
             QApplication.processEvents()
             discovered = SequenceDiscovery.discover_sequences(path)
-            if not discovered:
-                loading_dialog.close()
-                self._append_log(f"[ERROR] No image sequences found in directory: {path}")
-                return
-
-            self._append_log(f"[LOAD] Found {len(discovered)} sequence(s)")
-            QApplication.processEvents()
-
-            # If multiple sequences, let user choose; if one, use it directly
-            if len(discovered) == 1:
-                pattern_str, frames = discovered[0]
-                self._append_log(f"[LOAD] Using sequence: {pattern_str}")
-                QApplication.processEvents()
-            else:
-                loading_dialog.close()
-                pattern_str, frames = self._ask_sequence_selection_dialog(discovered)
-                if pattern_str is None:
-                    return
-                loading_dialog = QProgressDialog("Loading sequence...", "", 0, 0, self)
-                loading_dialog.setWindowTitle("Loading")
-                loading_dialog.setCancelButton(None)
-                loading_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-                loading_dialog.show()
-                QApplication.processEvents()
-
-            # Confirm/show the discovered sequence
-            if frames is not None:
-                self._append_log(f"[LOAD] Initial scan found {len(frames)} frame(s): {pattern_str}")
-            else:
-                self._append_log(f"[LOAD] Pattern recognized: {pattern_str}")
-            QApplication.processEvents()
-
-            # Discover frames again to validate
-            self._append_log("[LOAD] Validating and discovering all frames...")
-            QApplication.processEvents()
-            frames_validated = SequenceDiscovery.discover_frames(pattern_str, path)
-            if not frames_validated:
-                loading_dialog.close()
-                self._append_log(f"[ERROR] No frames found matching pattern: {pattern_str}")
-                return
-
-            self._append_log(f"[LOAD] Discovered {len(frames_validated)} frame(s)")
-            QApplication.processEvents()
-
-            # Probe first frame
-            self._append_log("[LOAD] Probing first frame to extract metadata...")
-            QApplication.processEvents()
-            pattern = SequencePathPattern(pattern_str)
-            first_frame_path = str(Path(path) / pattern.format(frames_validated[0]))
-
-            probe = OiioAdapter.probe_file(first_frame_path)
-            if not probe:
-                loading_dialog.close()
-                self._append_log(f"[ERROR] Failed to probe file: {first_frame_path}")
-                return
-
-            self._append_log("[LOAD] Metadata extraction complete")
-            QApplication.processEvents()
-
-            # Create sequence spec
-            seq_id = f"seq_{len(self.state.sequences)}"
-            seq = SequenceSpec(
-                id=seq_id,
-                display_name=f"{seq_id} ({len(frames_validated)} frames)",
-                pattern=pattern,
-                source_dir=Path(path),
-                frames=frames_validated,
-                static_probe=probe,
-            )
-
-            self.state.add_sequence(seq)
-            self.seq_list_model.add_sequence(seq)
-            self.settings.set_input_dir(path)  # Save input directory to settings
-            num_channels = probe.main_subimage.spec.nchannels if probe.main_subimage else 0
-            num_attributes = len(probe.main_subimage.attributes.attributes) if probe.main_subimage and probe.main_subimage.attributes else 0
-            self._append_log(
-                f"[OK] Loaded sequence: {len(frames_validated)} frames, "
-                f"{num_channels} channels, {num_attributes} attributes"
-            )
-            # Update max frame count
-            self._update_max_frame_count()
-            QApplication.processEvents()
         finally:
             loading_dialog.close()
+
+        if not discovered:
+            self._append_log(f"[ERROR] No image sequences found in directory: {path}")
+            return
+
+        self._append_log(f"[LOAD] Found {len(discovered)} sequence(s)")
+
+        # Let the user pick which sequences to load (multi-select)
+        selected = self._ask_sequence_selection_dialog(discovered)
+        if not selected:
+            return
+
+        self.settings.set_input_dir(path)
+
+        # Build a set of already-loaded (pattern, source_dir) pairs for duplicate detection
+        loaded_keys = {
+            (seq.pattern.pattern, str(seq.source_dir))
+            for seq in self.state.sequences.values()
+        }
+
+        for pattern_str, frames in selected:
+            if (pattern_str, path) in loaded_keys:
+                self._append_log(f"[SKIP] Already loaded: {pattern_str}")
+                continue
+
+            loading_dialog = QProgressDialog(f"Loading {pattern_str}...", "", 0, 0, self)
+            loading_dialog.setWindowTitle("Loading")
+            loading_dialog.setCancelButton(None)
+            loading_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+            loading_dialog.show()
+            QApplication.processEvents()
+
+            try:
+                if frames is not None:
+                    self._append_log(f"[LOAD] Initial scan found {len(frames)} frame(s): {pattern_str}")
+                else:
+                    self._append_log(f"[LOAD] Pattern recognized: {pattern_str}")
+                QApplication.processEvents()
+
+                self._append_log("[LOAD] Validating and discovering all frames...")
+                QApplication.processEvents()
+                frames_validated = SequenceDiscovery.discover_frames(pattern_str, path)
+                if not frames_validated:
+                    self._append_log(f"[ERROR] No frames found matching pattern: {pattern_str}")
+                    continue
+
+                self._append_log(f"[LOAD] Discovered {len(frames_validated)} frame(s)")
+                QApplication.processEvents()
+
+                self._append_log("[LOAD] Probing first frame to extract metadata...")
+                QApplication.processEvents()
+                pattern = SequencePathPattern(pattern_str)
+                first_frame_path = str(Path(path) / pattern.format(frames_validated[0]))
+
+                probe = OiioAdapter.probe_file(first_frame_path)
+                if not probe:
+                    self._append_log(f"[ERROR] Failed to probe file: {first_frame_path}")
+                    continue
+
+                self._append_log("[LOAD] Metadata extraction complete")
+                QApplication.processEvents()
+
+                seq_id = f"seq_{len(self.state.sequences)}"
+                seq = SequenceSpec(
+                    id=seq_id,
+                    display_name=f"{seq_id} ({len(frames_validated)} frames)",
+                    pattern=pattern,
+                    source_dir=Path(path),
+                    frames=frames_validated,
+                    static_probe=probe,
+                )
+
+                self.state.add_sequence(seq)
+                self.seq_list_model.add_sequence(seq)
+                loaded_keys.add((pattern_str, path))
+                num_channels = probe.main_subimage.spec.nchannels if probe.main_subimage else 0
+                num_attributes = len(probe.main_subimage.attributes.attributes) if probe.main_subimage and probe.main_subimage.attributes else 0
+                self._append_log(
+                    f"[OK] Loaded sequence: {len(frames_validated)} frames, "
+                    f"{num_channels} channels, {num_attributes} attributes"
+                )
+                self._update_max_frame_count()
+                QApplication.processEvents()
+            finally:
+                loading_dialog.close()
 
     def _on_remove_sequence(self) -> None:
         """Handle 'Remove' button for sequences."""
@@ -1055,19 +1058,23 @@ class MainWindow(QMainWindow):
 
     def _ask_sequence_selection_dialog(
         self, sequences: list[tuple[str, list[int]]]
-    ) -> tuple[Optional[str], Optional[list[int]]]:
-        """Show dialog for user to select from multiple sequences."""
+    ) -> list[tuple[str, list[int]]]:
+        """Show a multi-select dialog for the user to choose which sequences to load."""
         dialog = QDialog(self)
-        dialog.setWindowTitle("Select Sequence")
-        dialog.setGeometry(400, 300, 500, 300)
+        dialog.setWindowTitle("Select Sequences")
+        dialog.resize(560, 320)
         layout = QVBoxLayout(dialog)
 
-        layout.addWidget(QLabel("Multiple sequences detected. Select one:"))
+        layout.addWidget(QLabel("Select sequences to load (Ctrl+click or Shift+click for multiple):"))
 
-        combo = QComboBox()
+        list_widget = QListWidget()
+        list_widget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         for pattern, frames in sequences:
-            combo.addItem(f"{pattern} ({len(frames)} frames)", (pattern, frames))
-        layout.addWidget(combo)
+            item = QListWidgetItem(f"{pattern}  ({len(frames)} frames)")
+            item.setData(Qt.ItemDataRole.UserRole, (pattern, frames))
+            list_widget.addItem(item)
+        list_widget.selectAll()
+        layout.addWidget(list_widget)
 
         btn_ok = QPushButton("OK")
         btn_cancel = QPushButton("Cancel")
@@ -1079,11 +1086,19 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(btn_cancel)
         layout.addLayout(btn_layout)
 
-        ok = dialog.exec() == QDialog.DialogCode.Accepted
-        if ok:
-            pattern, frames = combo.currentData()
-            return pattern, frames
-        return None, None
+        # Center dialog on the main window
+        dialog.adjustSize()
+        parent_geo = self.frameGeometry()
+        dialog_geo = dialog.frameGeometry()
+        dialog_geo.moveCenter(parent_geo.center())
+        dialog.move(dialog_geo.topLeft())
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            return [
+                item.data(Qt.ItemDataRole.UserRole)
+                for item in list_widget.selectedItems()
+            ]
+        return []
 
     def _detect_color_space(self, seq: SequenceSpec) -> Optional[str]:
         """
