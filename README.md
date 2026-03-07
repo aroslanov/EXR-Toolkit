@@ -15,13 +15,17 @@ A desktop GUI application for advanced EXR image sequence manipulation, enabling
 - **EXR Export Controls**: 
   - Compression selection (none, rle, zip, zips, piz, pxr24, b44, b44a, dwaa, dwab)
   - Frame policy selection (Stop at Shortest, Hold Last Frame, Process Available)
+  - Compression policy (Skip matching compression for single input, or always recompress)
+  - Resolution handling (No resize, match largest/smallest/average, or custom dimensions)
+  - Resize algorithm selection (Nearest, Linear, Cubic, Lanczos3 for quality/speed tradeoff)
   - Custom attribute editing
+- **Project Management**: Save and load export configurations (sequences, channels, filters, settings) to restore workflow state
 - **Real-time Validation**: Validates export configuration before allowing export
 - **Progress Tracking**: Live export progress and detailed logging
 
 ### Processing Pipeline
 - **Non-Destructive Filter Stack**: Apply multiple image processing filters that execute during export
-- **Filter Browser**: Browse available filters organized by category (Blur, Color Correction, Transformation, etc.)
+- **Filter Browser**: Browse available filters organized by category
 - **Filter Management**:
   - Add filters to the pipeline by selecting from the browser
   - Reorder filters (↑/↓ buttons)
@@ -29,14 +33,13 @@ A desktop GUI application for advanced EXR image sequence manipulation, enabling
   - Remove filters from the pipeline
 - **Dynamic Parameter Editor**: Edit filter parameters with appropriate controls (spinboxes, dropdowns, checkboxes)
 - **Pipeline Persistence**: Filter configurations are saved with project state
-- **Available Filters**:
-  - **Blur**: Median filter
-  - **Enhancement**: Unsharp mask, brightness/contrast, gamma correction
-  - **Color**: Color space conversion, channel inversion
-  - **Transformation**: Warp transform, rotate
-  - **Data Processing**: Fill holes, fix non-finite values, noise injection
-  - **Morphology**: Dilate, erode
-  - **Channel Operations**: Channel extract, channel invert
+- **Available Filters** (12 visible filters):
+  - **Color Transforms**: Color space conversion
+  - **Tone & Dynamics**: Brightness/Contrast, Gamma Correction
+  - **Filtering & Repair**: Median filter, Unsharp mask, Fill holes, Fix non-finite values
+  - **Effects & Distortion**: Rotate, Noise injection
+  - **Morphological Operations**: Dilate, Erode
+  - **Channel Operations**: Channel invert
 - **Pipeline UI**: Dual-pane interface with filter browser (45%) and pipeline editor (55%), both fully resizable
 
 ### Technical Highlights
@@ -173,6 +176,20 @@ The **Processing** tab allows you to apply non-destructive image filters during 
    - **Stop at Shortest**: Process only frames available in all sequences
    - **Hold Last Frame**: Reuse the last frame when a sequence ends
    - **Process Available**: Process all available frames
+6. **Compression Policy**: Optimization for attribute-editing workflows
+   - **Skip matching compression** (default): Fast path for single-source exports with no channel modifications
+   - **Always recompress**: Standard path for multi-source composites or channel modifications
+7. **Resolution Handling**:
+   - **None** (default): Keep original sequence resolutions
+   - **Largest**: Upscale all sequences to match the largest resolution
+   - **Smallest**: Downscale all sequences to match the smallest resolution
+   - **Average**: Scale to average dimensions (rounded down)
+   - **Custom**: Scale all sequences to user-specified fixed dimensions
+8. **Resize Algorithm**: Quality/speed tradeoff for scaling
+   - **Nearest**: Fastest, lowest quality (blocky)
+   - **Linear**: Fast, medium quality
+   - **Cubic**: Moderate, good quality
+   - **Lanczos3**: Slowest, highest quality (recommended for production)
 
 ### Export
 
@@ -189,6 +206,8 @@ Settings are automatically saved to `settings.ini` and include:
 - Last input/output directories
 - EXR compression preference
 - Frame policy preference
+- Resize policy and algorithm preferences
+- Compression policy preference (skip vs always recompress)
 
 ## Project Structure
 
@@ -199,7 +218,7 @@ EXR-Toolkit/
 │   ├── main.py                 # Application entry point
 │   ├── core/                   # Core data types and business logic
 │   │   ├── __init__.py
-│   │   ├── types.py            # Dataclasses: SequenceSpec, ChannelSpec, ExportSpec, etc.
+│   │   ├── types.py            # Dataclasses: SequenceSpec, ChannelSpec, ExportSpec, ResizePolicy, etc.
 │   │   ├── sequence.py         # Sequence pattern discovery
 │   │   └── validation.py       # Export validation rules
 │   ├── oiio/                   # OpenImageIO integration
@@ -207,17 +226,18 @@ EXR-Toolkit/
 │   │   └── adapter.py          # OIIO wrapper and type mapping
 │   ├── processing/             # Image processing pipeline system
 │   │   ├── __init__.py
-│   │   ├── filters.py          # Filter definitions (15+ filters: blur, color, transform, etc.)
+│   │   ├── filters.py          # Filter definitions (14 filters: color, tone, repair, distortion, morphology, channels)
 │   │   ├── pipeline.py         # ProcessingPipeline container and serialization
 │   │   └── executor.py         # Applies filters to ImageBuf during export
 │   ├── services/               # Application services
 │   │   ├── __init__.py
 │   │   ├── project_state.py    # In-memory project state (sequences, export config, pipeline)
 │   │   ├── settings.py         # Settings persistence (INI file)
-│   │   └── export_runner.py    # Threaded export execution with pipeline integration
+│   │   ├── export_runner.py    # Threaded export execution with pipeline integration
+│   │   └── project_serializer.py # Save/load project configurations
 │   └── ui/                     # Qt 6 GUI components
 │       ├── __init__.py
-│       ├── main_window.py      # Main window orchestration (tabs: Input, Output, Processing, Export)
+│       ├── main_window.py      # Main window with three horizontal panels (Input, Output, Export)
 │       ├── models/             # Qt model classes
 │       │   ├── __init__.py
 │       │   └── qt_models.py    # List/Table models for sequences, channels, attributes
@@ -227,7 +247,7 @@ EXR-Toolkit/
 │           ├── filter_browser.py      # Hierarchical filter selection tree (45% left pane)
 │           ├── pipeline_list.py       # Active filter list with reorder/toggle/remove controls
 │           ├── parameter_editor.py    # Dynamic parameter editor for selected filter
-│           └── processing_widget.py   # Main Processing tab (integrates browser, list, editor)
+│           └── processing_widget.py   # Processing panel (integrates browser, list, editor)
 ├── main.py                     # Root launcher script
 ├── requirements.txt            # Python dependencies
 ├── settings.ini                # User settings (auto-created)
@@ -326,18 +346,17 @@ frame_policy = STOP_AT_SHORTEST
 The processing system is entirely non-destructive and optional:
 
 - **Pipeline Model** (`ProcessingPipeline`): Container for an ordered list of filters with enabled/disabled state
-- **Filter Registry**: 15+ filters organized by category (blur, color, transform, data cleaning, morphology, channels)
+- **Filter Registry**: 14 filters organized by category (color transforms, tone/dynamics, repair, distortion, morphology, channels)
 - **Executor** (`ProcessingExecutor`): Applies filters sequentially to each frame's ImageBuf during export
 - **Serialization**: Pipeline state (filters and parameters) is serialized to project files and survives app restarts
 
 **Filter Categories**:
-- **Blur**: Median filter (radius-based noise reduction)
-- **Enhancement**: Unsharp mask, brightness/contrast, gamma correction
-- **Color**: Color space conversion, channel inversion
-- **Transformation**: Warp transform, rotate
-- **Data**: Fill holes, fix non-finite values, noise injection
-- **Morphology**: Dilate, erode
-- **Channels**: Channel extract, channel invert
+- **Color Transforms**: Color space conversion between sRGB, scene linear, ACEScg, DCI-P3, Rec709, and Raw
+- **Tone & Dynamics**: Brightness/contrast adjustment and gamma correction
+- **Filtering & Repair**: Median filter, unsharp mask, fill holes, and fix non-finite value replacement
+- **Effects & Distortion**: Image rotation and noise injection (uniform, Gaussian, salt-and-pepper)
+- **Morphological Operations**: Dilate and erode for shape modification
+- **Channel Operations**: Channel inversion (1 - value per channel)
 
 ### Frame Policy Details
 
@@ -372,7 +391,6 @@ For fully automated batch processing, future versions may support scripted expor
 ## Known Limitations
 
 - **Single-Part EXR**: Multi-part/multi-subimage EXR files are supported for reading but output is always single-part
-- **Resolution Matching**: All sequences must have matching resolution (no resampling yet)
 - **Interactive Only**: GUI is interactive; no command-line API yet
 - **Filter Preview**: Processing pipeline cannot be previewed on a live frame (applies only at export time)
 - **OIIO-Limited Filters**: Filter library is bound by OpenImageIO's ImageBufAlgo capabilities
@@ -384,4 +402,4 @@ This project is licensed under the [MIT License](https://opensource.org/licenses
 ---
 
 **Version**: 0.2.0 (Alpha)  
-**Last Updated**: January 12, 2026
+**Last Updated**: March 6, 2026
