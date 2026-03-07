@@ -47,6 +47,7 @@ class AttributeEditor(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.table.doubleClicked.connect(self._on_edit_attribute)
         layout.addWidget(self.table)
 
         # Buttons
@@ -166,14 +167,15 @@ class AddAttributeDialog(QDialog):
         # Center dialog relative to parent
         if parent:
             self._center_on_parent()
-    
+
     def _center_on_parent(self) -> None:
-        """Center this dialog relative to parent window."""
-        parent = self.parent()
-        if isinstance(parent, QWidget):
-            parent_geometry = parent.frameGeometry()
-            center_point = parent_geometry.center()
-            self.move(center_point.x() - self.width() // 2, center_point.y() - self.height() // 2)
+        """Center this dialog on the top-level window."""
+        top = self.parent().window() if self.parent() else None
+        if top is not None:
+            self.adjustSize()
+            geo = self.frameGeometry()
+            geo.moveCenter(top.frameGeometry().center())
+            self.move(geo.topLeft())
 
     def get_attribute(self) -> AttributeSpec:
         """Get the configured attribute."""
@@ -238,14 +240,15 @@ class EditAttributeDialog(QDialog):
         # Center dialog relative to parent
         if parent:
             self._center_on_parent()
-    
+
     def _center_on_parent(self) -> None:
-        """Center this dialog relative to parent window."""
-        parent = self.parent()
-        if isinstance(parent, QWidget):
-            parent_geometry = parent.frameGeometry()
-            center_point = parent_geometry.center()
-            self.move(center_point.x() - self.width() // 2, center_point.y() - self.height() // 2)
+        """Center this dialog on the top-level window."""
+        top = self.parent().window() if self.parent() else None
+        if top is not None:
+            self.adjustSize()
+            geo = self.frameGeometry()
+            geo.moveCenter(top.frameGeometry().center())
+            self.move(geo.topLeft())
 
     def get_attribute(self) -> AttributeSpec:
         """Get the updated attribute."""

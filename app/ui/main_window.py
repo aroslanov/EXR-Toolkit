@@ -121,7 +121,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Input Sequences"))
         self.sequence_list = QListView()
         self.sequence_list.setModel(self.seq_list_model)
-        self.sequence_list.clicked.connect(self._on_sequence_selected)
+        self.sequence_list.selectionModel().currentChanged.connect(self._on_sequence_selected)
         layout.addWidget(self.sequence_list, 1)  # Stretch factor 1
 
         btn_layout = QHBoxLayout()
@@ -176,6 +176,7 @@ class MainWindow(QMainWindow):
         self.output_list.setModel(self.out_ch_list_model)
         self.output_list.setSelectionMode(QListView.SelectionMode.ExtendedSelection)
         self.output_list.selectionModel().selectionChanged.connect(self._on_output_selection_changed)
+        self.output_list.doubleClicked.connect(self._on_rename_output_channel)
         output_channels_layout.addWidget(self.output_list, 1)  # Stretch factor 1
 
         btn_layout = QHBoxLayout()
@@ -531,12 +532,20 @@ class MainWindow(QMainWindow):
             self._update_max_frame_count()
             self._append_log(f"[OK] Removed sequence: {seq.display_name}")
 
-    def _on_sequence_selected(self, index) -> None:
-        """Handle sequence selection."""
-        seq = self.seq_list_model.get_sequence(index.row())
-        if not seq:
+    def _on_sequence_selected(self, current, previous=None) -> None:
+        """Handle sequence selection change."""
+        if not current.isValid():
+            # No sequence selected — clear dependent panels
+            self.ch_list_model.set_channels([])
+            self.attr_table_model.set_attributes([])
             return
-        
+
+        seq = self.seq_list_model.get_sequence(current.row())
+        if not seq:
+            self.ch_list_model.set_channels([])
+            self.attr_table_model.set_attributes([])
+            return
+
         # Check if we have probe data
         if not seq.static_probe or not seq.static_probe.main_subimage:
             # No probe data - this can happen after loading a project
@@ -547,24 +556,24 @@ class MainWindow(QMainWindow):
                 f"Click 'Load Sequence' and select this sequence's directory to load metadata."
             )
             return
-        
+
         # Probe data available - populate channels and attributes
         channels = seq.static_probe.main_subimage.channels
         self.ch_list_model.set_channels(channels)
-        
-        # Populate attributes table
+
+        # Populate attributes from the selected sequence
         attributes = []
         if seq.static_probe.main_subimage.attributes and seq.static_probe.main_subimage.attributes.attributes:
             attributes = seq.static_probe.main_subimage.attributes.attributes
         self.attr_table_model.set_attributes(attributes)
-        
+
         # Detect and set input color space for processing pipeline
         color_space = self._detect_color_space(seq)
         self.processing_widget.set_input_color_space(color_space)
-        
+
         # Update max frame count from longest sequence
         self._update_max_frame_count()
-        
+
         self._append_log(f"[OK] Selected sequence: {seq.display_name} ({len(channels)} channels, {len(attributes)} attributes)")
 
     # ========== Output Channel Management ==========
@@ -1052,6 +1061,12 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(btn_ok)
         btn_layout.addWidget(btn_cancel)
         layout.addLayout(btn_layout)
+
+        dialog.adjustSize()
+        parent_geo = self.frameGeometry()
+        dialog_geo = dialog.frameGeometry()
+        dialog_geo.moveCenter(parent_geo.center())
+        dialog.move(dialog_geo.topLeft())
 
         ok = dialog.exec() == QDialog.DialogCode.Accepted
         return edit.text(), ok
