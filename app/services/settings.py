@@ -1,19 +1,23 @@
 """
 Settings management for EXR Toolkit.
 
-Handles persistent storage of user preferences in settings.ini.
+Handles persistent storage of user preferences in a platform-appropriate location:
+  Windows : %APPDATA%\EXRToolkit\settings.ini
+  macOS   : ~/Library/Preferences/EXRToolkit/settings.ini
+  Linux   : ~/.config/EXRToolkit/settings.ini
+
+Requires QApplication to be constructed before instantiating Settings.
 """
 
 from configparser import ConfigParser
 from pathlib import Path
 from typing import Optional
 
+from PySide6.QtCore import QStandardPaths
+
 
 class Settings:
-    """Manages application settings via settings.ini."""
-
-    # Settings file location (project root)
-    SETTINGS_FILE = Path(__file__).parent.parent.parent / "settings.ini"
+    """Manages application settings via a platform-appropriate settings.ini."""
 
     # Section and keys
     SECTION = "preferences"
@@ -30,13 +34,17 @@ class Settings:
 
     def __init__(self):
         """Initialize settings from file or create defaults."""
+        config_dir = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.AppConfigLocation
+        )
+        self.settings_file = Path(config_dir) / "settings.ini"
         self.config = ConfigParser()
         self._load()
 
     def _load(self) -> None:
         """Load settings from file or create defaults."""
-        if self.SETTINGS_FILE.exists():
-            self.config.read(self.SETTINGS_FILE)
+        if self.settings_file.exists():
+            self.config.read(self.settings_file, encoding="utf-8")
         else:
             # Create default section
             self.config.add_section(self.SECTION)
@@ -54,15 +62,15 @@ class Settings:
 
     def _save(self) -> None:
         """Save settings to file."""
-        self.SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.SETTINGS_FILE, "w") as f:
+        self.settings_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.settings_file, "w", encoding="utf-8") as f:
             self.config.write(f)
 
     def get_input_dir(self) -> Optional[str]:
         """Get last input directory."""
         try:
             val = self.config.get(self.SECTION, self.KEY_INPUT_DIR)
-            return val if val else None
+            return Path(val).as_posix() if val else None
         except:
             return None
 
@@ -77,7 +85,7 @@ class Settings:
         """Get last output directory."""
         try:
             val = self.config.get(self.SECTION, self.KEY_OUTPUT_DIR)
-            return val if val else None
+            return Path(val).as_posix() if val else None
         except:
             return None
 
@@ -92,7 +100,7 @@ class Settings:
         """Get last project directory."""
         try:
             val = self.config.get(self.SECTION, self.KEY_PROJECT_DIR)
-            return val if val else None
+            return Path(val).as_posix() if val else None
         except:
             return None
 

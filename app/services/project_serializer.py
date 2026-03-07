@@ -129,7 +129,7 @@ class ProjectSerializer:
         return {
             "display_name": seq.display_name,
             "pattern": seq.pattern.pattern,
-            "source_dir": str(seq.source_dir),
+            "source_dir": seq.source_dir.as_posix(),
             "frames": seq.frames,
             # Note: static_probe and per_frame_probes are not serialized
             # They are probed again when loading

@@ -352,22 +352,27 @@ class ExportRunner(QRunnable):
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
+            # Normalize to forward slashes — OIIO on Windows does not reliably
+            # accept backslash-separated paths.
+            source_path_str = source_path.as_posix()
+            output_path_str = output_path.as_posix()
+
             # Open source file
-            inp = oiio.ImageInput.open(str(source_path))
+            inp = oiio.ImageInput.open(source_path_str)
             if not inp:
                 raise RuntimeError(f"Cannot open source: {source_path}")
 
             # Get spec from source
             src_spec = inp.spec()
-            
+
             # Create output file
-            out = oiio.ImageOutput.create(str(output_path))
+            out = oiio.ImageOutput.create(output_path_str)
             if not out:
                 inp.close()
                 raise RuntimeError(f"Cannot create output: {output_path}")
 
             # Open output with same spec as source
-            if not out.open(str(output_path), src_spec):
+            if not out.open(output_path_str, src_spec):
                 inp.close()
                 out.close()
                 raise RuntimeError(f"Cannot open output for writing: {output_path}")

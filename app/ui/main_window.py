@@ -446,6 +446,9 @@ class MainWindow(QMainWindow):
 
         self.settings.set_input_dir(path)
 
+        # Normalize path to match how source_dir is stored (Path normalizes slashes)
+        normalized_path = str(Path(path))
+
         # Build a set of already-loaded (pattern, source_dir) pairs for duplicate detection
         loaded_keys = {
             (seq.pattern.pattern, str(seq.source_dir))
@@ -453,7 +456,7 @@ class MainWindow(QMainWindow):
         }
 
         for pattern_str, frames in selected:
-            if (pattern_str, path) in loaded_keys:
+            if (pattern_str, normalized_path) in loaded_keys:
                 self._append_log(f"[SKIP] Already loaded: {pattern_str}")
                 continue
 
@@ -506,7 +509,7 @@ class MainWindow(QMainWindow):
 
                 self.state.add_sequence(seq)
                 self.seq_list_model.add_sequence(seq)
-                loaded_keys.add((pattern_str, path))
+                loaded_keys.add((pattern_str, normalized_path))
                 num_channels = probe.main_subimage.spec.nchannels if probe.main_subimage else 0
                 num_attributes = len(probe.main_subimage.attributes.attributes) if probe.main_subimage and probe.main_subimage.attributes else 0
                 self._append_log(
@@ -668,10 +671,13 @@ class MainWindow(QMainWindow):
                 self._append_log("[ERROR] Channel name cannot be empty")
                 return
             
-            # Check for invalid characters
-            invalid_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
+            # EXR channel names may not contain path separators (used as
+            # layer hierarchy delimiters by the spec).  All other characters
+            # are valid — avoid imposing Windows filesystem restrictions on
+            # a metadata string that never touches the filesystem.
+            invalid_chars = ['/', '\\']
             if any(char in new_name for char in invalid_chars):
-                self._append_log("[ERROR] Channel name contains invalid characters")
+                self._append_log("[ERROR] Channel name cannot contain path separators")
                 return
 
             # Create updated channel with new name

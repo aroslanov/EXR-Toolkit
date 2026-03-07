@@ -19,6 +19,8 @@ def main():
 
     # Create Qt application
     app = QApplication(sys.argv)
+    app.setApplicationName("EXRToolkit")
+    app.setOrganizationName("EXRToolkit")
 
     # Create and show main window
     window = MainWindow()
