@@ -1,4 +1,4 @@
-"""
+r"""
 Settings management for EXR Toolkit.
 
 Handles persistent storage of user preferences in a platform-appropriate location:

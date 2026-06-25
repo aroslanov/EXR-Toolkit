@@ -7,3 +7,6 @@ settings.ini
 update_journal.md
 *.md
 test_*.py
+*.spec
+build/
+dist/
