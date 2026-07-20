@@ -33,7 +33,7 @@ A desktop GUI application for advanced EXR image sequence manipulation, enabling
   - Remove filters from the pipeline
 - **Dynamic Parameter Editor**: Edit filter parameters with appropriate controls (spinboxes, dropdowns, checkboxes)
 - **Pipeline Persistence**: Filter configurations are saved with project state
-- **Available Filters** (12 visible filters):
+- **Available Filters** (14 filters, 12 visible in UI):
   - **Color Transforms**: Color space conversion
   - **Tone & Dynamics**: Brightness/Contrast, Gamma Correction
   - **Filtering & Repair**: Median filter, Unsharp mask, Fill holes, Fix non-finite values
@@ -226,7 +226,7 @@ EXR-Toolkit/
 │   │   └── adapter.py          # OIIO wrapper and type mapping
 │   ├── processing/             # Image processing pipeline system
 │   │   ├── __init__.py
-│   │   ├── filters.py          # Filter definitions (14 filters: color, tone, repair, distortion, morphology, channels)
+│   │   ├── filters.py          # Filter definitions (14 filters, 12 visible: color, tone, repair, distortion, morphology, channels)
 │   │   ├── pipeline.py         # ProcessingPipeline container and serialization
 │   │   └── executor.py         # Applies filters to ImageBuf during export
 │   ├── services/               # Application services
@@ -251,8 +251,6 @@ EXR-Toolkit/
 ├── main.py                     # Root launcher script
 ├── requirements.txt            # Python dependencies
 ├── settings.ini                # User settings (auto-created)
-├── implementation.md           # Detailed technical specification
-├── update_journal.md           # Development log
 └── README.md                   # This file
 ```
 
@@ -308,7 +306,7 @@ pip install PySide6
 1. Check the Python version: `python --version` (must be 3.12+)
 2. Verify virtual environment is activated
 3. Check console output for specific error messages
-4. Review `update_journal.md` for known issues
+4. Check console output for specific error messages
 
 ### Sequences not discovered
 
