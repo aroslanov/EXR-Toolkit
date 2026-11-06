@@ -127,9 +127,12 @@ class MainWindow(QMainWindow):
         btn_layout = QHBoxLayout()
         btn_add = QPushButton("Load Sequence")
         btn_add.clicked.connect(self._on_load_sequence)
+        btn_add_image = QPushButton("Load Image")
+        btn_add_image.clicked.connect(self._on_load_single_image)
         btn_remove = QPushButton("Remove")
         btn_remove.clicked.connect(self._on_remove_sequence)
         btn_layout.addWidget(btn_add)
+        btn_layout.addWidget(btn_add_image)
         btn_layout.addWidget(btn_remove)
         layout.addLayout(btn_layout)
 
@@ -520,6 +523,46 @@ class MainWindow(QMainWindow):
                 QApplication.processEvents()
             finally:
                 loading_dialog.close()
+
+    def _on_load_single_image(self) -> None:
+        """Handle 'Load Image' button - load a single image file as a 1-frame sequence."""
+        initial_dir = self.settings.get_input_dir() or ""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Image File",
+            initial_dir,
+            "Images (*.exr *.png *.jpg *.jpeg *.tif *.tiff);;All Files (*)",
+        )
+        if not path:
+            return
+
+        seq = SequenceDiscovery.build_single_image(path)
+        if not seq:
+            self._append_log(f"[ERROR] Failed to load image: {path}")
+            return
+
+        # Duplicate check: same file already loaded
+        key = (seq.pattern.pattern, str(seq.source_dir))
+        loaded_keys = {
+            (s.pattern.pattern, str(s.source_dir))
+            for s in self.state.sequences.values()
+        }
+        if key in loaded_keys:
+            self._append_log(f"[SKIP] Already loaded: {seq.display_name}")
+            return
+
+        seq.id = f"seq_{len(self.state.sequences)}"
+
+        self.state.add_sequence(seq)
+        self.seq_list_model.add_sequence(seq)
+        self.settings.set_input_dir(str(seq.source_dir))
+
+        num_channels = seq.static_probe.main_subimage.spec.nchannels if seq.static_probe.main_subimage else 0
+        self._append_log(
+            f"[OK] Loaded image: {seq.display_name} "
+            f"({num_channels} channels)"
+        )
+        self._update_max_frame_count()
 
     def _on_remove_sequence(self) -> None:
         """Handle 'Remove' button for sequences."""

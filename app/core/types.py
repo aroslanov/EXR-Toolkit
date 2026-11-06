@@ -36,6 +36,12 @@ class ValidationSeverity(Enum):
     WARNING = auto()
 
 
+class SequenceKind(Enum):
+    """Whether a SequenceSpec is a frame sequence or a single still image."""
+    SEQUENCE = auto()
+    SINGLE_IMAGE = auto()
+
+
 class ResizePolicy(Enum):
     """How to calculate target size from input sequences."""
     NONE = auto()           # No resize (default, backward compatible)
@@ -188,6 +194,7 @@ class SequenceSpec:
     frames: list[int] = field(default_factory=list)
     static_probe: Optional[FileProbe] = None
     per_frame_probes: dict[int, FileProbe] = field(default_factory=dict)
+    kind: SequenceKind = SequenceKind.SEQUENCE
 
     def probe(self, frame: Optional[int] = None) -> Optional[FileProbe]:
         """Get probed data for a specific frame (or static probe if None)."""

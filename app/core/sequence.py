@@ -12,7 +12,9 @@ from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
-from .types import SequencePathPattern, SequenceSpec, FileProbe
+from ..oiio import OiioAdapter
+
+from .types import SequenceKind, SequencePathPattern, SequenceSpec, FileProbe
 
 
 class SequenceDiscovery:
@@ -254,6 +256,34 @@ class SequenceDiscovery:
                     all_frames.update(batch_frames)
         
         return sorted(all_frames)
+
+    @staticmethod
+    def build_single_image(path: str) -> Optional[SequenceSpec]:
+        """
+        Build a single-frame 'sequence' from one image file.
+
+        Uses the whole filename as the pattern with frame number 0, so the
+        normal sequence pipeline (probe, validation, export) works unchanged.
+        """
+        p = Path(path)
+        if not p.is_file():
+            return None
+        if p.suffix.lower() not in {'.exr', '.jpg', '.jpeg', '.png', '.tiff', '.tif'}:
+            return None
+
+        probe = OiioAdapter.probe_file(str(p))
+        if not probe:
+            return None
+
+        return SequenceSpec(
+            id="",
+            display_name=p.name,
+            pattern=SequencePathPattern(p.name),
+            source_dir=p.parent,
+            frames=[0],
+            static_probe=probe,
+            kind=SequenceKind.SINGLE_IMAGE,
+        )
 
 
 def _pattern_to_regex(pattern: str) -> str:

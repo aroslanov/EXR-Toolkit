@@ -22,6 +22,7 @@ import numpy as np
 from ..core import (
     ExportSpec,
     SequenceSpec,
+    SequenceKind,
     ValidationEngine,
     ValidationSeverity,
     ResizePolicy,
@@ -630,7 +631,11 @@ class ExportRunner(QRunnable):
         """
         if not sequence.frames:
             return 0
-        
+
+        # Single-image stills: hold the same image for every output frame
+        if sequence.kind == SequenceKind.SINGLE_IMAGE:
+            return sequence.frames[0]
+
         # Sort frames to get a consistent ordering
         sorted_frames = sorted(sequence.frames)
         
